@@ -62,11 +62,12 @@ YOLOv5n 가중치 파일이 다음 위치에 있어야 합니다:
 
 ```
 weights/yolov5n/
-├── weights_unfused.bin          # 바이너리 가중치 (unfused, 기본)
-├── weights_fused.bin            # 바이너리 가중치 (fused, 선택)
-├── weights_map_unfused.json     # 가중치 맵 (unfused)
+├── weights_fused.bin            # 바이너리 가중치 (fused, 기본 사용)
 ├── weights_map_fused.json       # 가중치 맵 (fused)
-└── model_meta_*.json            # 모델 메타데이터 (선택사항)
+├── model_meta_fused.json        # 모델 메타데이터 (fused)
+├── weights_unfused.bin          # (선택) unfused 가중치
+├── weights_map_unfused.json     # (선택) unfused 맵
+└── model_meta_*.json            # 기타 메타데이터
 ```
 
 **가중치 파일이 없는 경우**:

@@ -72,9 +72,11 @@ typedef struct {
     // Indices: 0=layer0, 1=layer1, 2=layer2, 3=layer3, 4=layer4, 5=layer5, 6=layer6, 7=layer7, 8=layer9, 9=layer17, 10=layer20, 11=layer23
     tensor_t* saved_features[12];
     
-    // Weights loader
+    // Weights loader (float: bias, BN 등)
     weights_loader_t* weights;
-    
+    // INT8 conv 가중치 (optional; 있으면 float weight / weight minmax 미사용)
+    void* weights_int8;
+
     // Model parameters
     float depth_multiple;
     float width_multiple;
@@ -106,6 +108,7 @@ int yolov5n_load_weights(yolov5n_model_t* model);
 int load_conv_bn_layer(conv2d_layer_t* conv, batchnorm2d_layer_t* bn,
                        weights_loader_t* loader, const char* prefix,
                        int32_t in_channels, int32_t out_channels,
-                       int32_t kernel_size, int32_t stride, int32_t padding);
+                       int32_t kernel_size, int32_t stride, int32_t padding,
+                       void* int8_loader);  /* optional: weights_loader_int8_t* */
 
 #endif // YOLOV5N_BUILD_H

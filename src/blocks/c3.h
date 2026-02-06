@@ -48,15 +48,21 @@ int c3_init(c3_block_t* block, int32_t c1, int32_t c2, int32_t n, int shortcut);
 void c3_free(c3_block_t* block);
 
 /**
- * Forward pass
+ * Forward pass (int8 quant path)
  */
 int c3_forward(c3_block_t* block, const tensor_t* input, tensor_t* output, 
                tensor_t* workspace1, tensor_t* workspace2);
 
 /**
- * Load weights from weights loader
+ * Forward pass using float conv only (validation reference). Block must have float weights.
  */
-int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix);
+int c3_forward_float(c3_block_t* block, const tensor_t* input, tensor_t* output,
+                     tensor_t* workspace1, tensor_t* workspace2);
+
+/**
+ * Load weights. If int8_loader is non-NULL, loads int8 for all convs (for quant path).
+ */
+int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix, void* int8_loader);
 
 /**
  * Set debug output directory for intermediate tensor dumps

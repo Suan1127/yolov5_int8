@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../core/weights_loader.h"
+#include "../core/weights_loader_int8.h"
 #include "../ops/activation.h"
 #include "../ops/concat.h"
 #include "../core/tensor.h"
@@ -337,7 +338,8 @@ int c3_forward(c3_block_t* block, const tensor_t* input, tensor_t* output,
         goto error;
     }
     
-    if (conv2d_fused_bn_silu_forward(&block->cv1, block->cv1_is_fused ? NULL : &block->cv1_bn, input, workspace1) != 0) {
+    if (conv2d_quant_bn_silu_forward(&block->cv1, block->cv1_is_fused ? NULL : &block->cv1_bn,
+            block->cv1_is_fused, input, workspace1) != 0) {
         fprintf(stderr, "Error: c3_forward: cv1 conv2d (fused) failed\n");
         fprintf(stderr, "  input: (%d, %d, %d, %d), workspace1: (%d, %d, %d, %d)\n",
                 input->n, input->c, input->h, input->w,
@@ -400,7 +402,8 @@ int c3_forward(c3_block_t* block, const tensor_t* input, tensor_t* output,
         goto error;
     }
     
-    if (conv2d_fused_bn_silu_forward(&block->cv2, block->cv2_is_fused ? NULL : &block->cv2_bn, input, skip_output) != 0) {
+    if (conv2d_quant_bn_silu_forward(&block->cv2, block->cv2_is_fused ? NULL : &block->cv2_bn,
+            block->cv2_is_fused, input, skip_output) != 0) {
         fprintf(stderr, "Error: c3_forward: cv2 conv2d (fused) failed\n");
         tensor_free(skip_output);
         goto error;
@@ -452,7 +455,8 @@ int c3_forward(c3_block_t* block, const tensor_t* input, tensor_t* output,
         goto error;
     }
     
-    if (conv2d_fused_bn_silu_forward(&block->cv3, block->cv3_is_fused ? NULL : &block->cv3_bn, workspace2, output) != 0) {
+    if (conv2d_quant_bn_silu_forward(&block->cv3, block->cv3_is_fused ? NULL : &block->cv3_bn,
+            block->cv3_is_fused, workspace2, output) != 0) {
         fprintf(stderr, "Error: c3_forward: cv3 conv2d (fused) failed\n");
         fprintf(stderr, "  workspace2: (%d, %d, %d, %d)\n",
                 workspace2->n, workspace2->c, workspace2->h, workspace2->w);
@@ -483,10 +487,106 @@ error:
     return -1;
 }
 
-int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix) {
+/* Float path: conv2d_forward + (BN if !fused) + SiLU. Requires layer->weight. */
+static int c3_conv_bn_silu_float(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
+                                 const tensor_t* input, tensor_t* output) {
+    if (conv2d_forward(conv, input, output) != 0) return -1;
+    if (bn && !fused && batchnorm2d_forward(bn, output, output) != 0) return -1;
+    activation_silu(output);
+    return 0;
+}
+
+int c3_forward_float(c3_block_t* block, const tensor_t* input, tensor_t* output,
+                    tensor_t* workspace1, tensor_t* workspace2) {
+    if (!block || !input || !output) return -1;
+    if (!block->cv1.weight) return -1;  /* float path requires float weights */
+
+    int need_free_ws1 = 0, need_free_ws2 = 0;
+    if (!workspace1) {
+        workspace1 = tensor_create(input->n, block->c_, input->h, input->w);
+        if (!workspace1) return -1;
+        need_free_ws1 = 1;
+    }
+    if (!workspace2) {
+        workspace2 = tensor_create(input->n, 2 * block->c_, input->h, input->w);
+        if (!workspace2) {
+            if (need_free_ws1) tensor_free(workspace1);
+            return -1;
+        }
+        need_free_ws2 = 1;
+    }
+    if (input->data == workspace1->data) {
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        return -1;
+    }
+
+    if (c3_conv_bn_silu_float(&block->cv1, &block->cv1_bn, block->cv1_is_fused, input, workspace1) != 0) {
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        return -1;
+    }
+
+    tensor_t* bottleneck_temp = NULL;
+    if (block->n > 1) {
+        bottleneck_temp = tensor_create(input->n, block->c_, input->h, input->w);
+        if (!bottleneck_temp) {
+            if (need_free_ws1) tensor_free(workspace1);
+            if (need_free_ws2) tensor_free(workspace2);
+            return -1;
+        }
+    }
+    tensor_t* bottleneck_input = workspace1;
+    for (int i = 0; i < block->n; i++) {
+        tensor_t* bottleneck_output = (i == block->n - 1) ? workspace1 : bottleneck_temp;
+        if (bottleneck_forward_float(&block->bottlenecks[i], bottleneck_input, bottleneck_output, NULL) != 0) {
+            if (bottleneck_temp) tensor_free(bottleneck_temp);
+            if (need_free_ws1) tensor_free(workspace1);
+            if (need_free_ws2) tensor_free(workspace2);
+            return -1;
+        }
+        bottleneck_input = bottleneck_output;
+    }
+    if (bottleneck_temp) tensor_free(bottleneck_temp);
+
+    tensor_t* skip_output = tensor_create(input->n, block->c_, input->h, input->w);
+    if (!skip_output) {
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        return -1;
+    }
+    if (c3_conv_bn_silu_float(&block->cv2, &block->cv2_bn, block->cv2_is_fused, input, skip_output) != 0) {
+        tensor_free(skip_output);
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        return -1;
+    }
+
+    const tensor_t* concat_inputs[2] = {workspace1, skip_output};
+    if (concat_forward(concat_inputs, 2, workspace2) != 0) {
+        tensor_free(skip_output);
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        return -1;
+    }
+    tensor_free(skip_output);
+
+    if (c3_conv_bn_silu_float(&block->cv3, &block->cv3_bn, block->cv3_is_fused, workspace2, output) != 0) {
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        return -1;
+    }
+
+    if (need_free_ws1) tensor_free(workspace1);
+    if (need_free_ws2) tensor_free(workspace2);
+    return 0;
+}
+
+int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix, void* int8_loader) {
     if (!block || !weights_loader) return -1;
     
     weights_loader_t* loader = (weights_loader_t*)weights_loader;
+    weights_loader_int8_t* int8 = (weights_loader_int8_t*)int8_loader;
     char name[256];
     int32_t shape[4];
     int num_dims;
@@ -528,6 +628,12 @@ int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix)
             batchnorm2d_load_weights(&block->cv1_bn, bn_w, bn_b, bn_mean, bn_var);
         }
     }
+    if (int8) {
+        snprintf(name, sizeof(name), "%s.cv1.conv.weight", prefix);
+        const int8_t* qptr; float scale_w; size_t numel;
+        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
+            conv2d_load_weights_int8(&block->cv1, qptr, numel, scale_w, fused_bias);
+    }
     
     // Load cv2
     snprintf(name, sizeof(name), "%s.cv2.conv.weight", prefix);
@@ -566,6 +672,12 @@ int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix)
         if (bn_w && bn_b && bn_mean && bn_var) {
             batchnorm2d_load_weights(&block->cv2_bn, bn_w, bn_b, bn_mean, bn_var);
         }
+    }
+    if (int8) {
+        snprintf(name, sizeof(name), "%s.cv2.conv.weight", prefix);
+        const int8_t* qptr; float scale_w; size_t numel;
+        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
+            conv2d_load_weights_int8(&block->cv2, qptr, numel, scale_w, fused_bias);
     }
     
     // Load cv3
@@ -606,11 +718,33 @@ int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix)
             batchnorm2d_load_weights(&block->cv3_bn, bn_w, bn_b, bn_mean, bn_var);
         }
     }
+    if (int8) {
+        snprintf(name, sizeof(name), "%s.cv3.conv.weight", prefix);
+        const int8_t* qptr; float scale_w; size_t numel;
+        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
+            conv2d_load_weights_int8(&block->cv3, qptr, numel, scale_w, fused_bias);
+    }
     
     // Load bottlenecks
     for (int i = 0; i < block->n; i++) {
         snprintf(name, sizeof(name), "%s.m.%d", prefix, i);
         bottleneck_load_weights(&block->bottlenecks[i], loader, name);
+        if (int8) {
+            float* fb;
+            snprintf(name, sizeof(name), "%s.m.%d.cv1.conv.weight", prefix, i);
+            const int8_t* qptr; float scale_w; size_t numel;
+            if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0) {
+                snprintf(name, sizeof(name), "%s.m.%d.cv1.conv.bias", prefix, i);
+                fb = weights_loader_get(loader, name, shape, &num_dims);
+                conv2d_load_weights_int8(&block->bottlenecks[i].conv1, qptr, numel, scale_w, fb);
+            }
+            snprintf(name, sizeof(name), "%s.m.%d.cv2.conv.weight", prefix, i);
+            if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0) {
+                snprintf(name, sizeof(name), "%s.m.%d.cv2.conv.bias", prefix, i);
+                fb = weights_loader_get(loader, name, shape, &num_dims);
+                conv2d_load_weights_int8(&block->bottlenecks[i].conv2, qptr, numel, scale_w, fb);
+            }
+        }
     }
     
     return 0;

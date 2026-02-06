@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../core/weights_loader.h"
+#include "../core/weights_loader_int8.h"
 #include "../ops/activation.h"
 #include "../ops/concat.h"
 #include "../core/tensor.h"
@@ -252,7 +253,8 @@ int sppf_forward(sppf_block_t* block, const tensor_t* input, tensor_t* output,
     }
     
     // cv1: c1 -> c_ (fused Conv+BN+SiLU to reduce DDR traffic)
-    if (conv2d_fused_bn_silu_forward(&block->cv1, block->cv1_is_fused ? NULL : &block->cv1_bn, input, workspace1) != 0) goto error;
+    if (conv2d_quant_bn_silu_forward(&block->cv1, block->cv1_is_fused ? NULL : &block->cv1_bn,
+            block->cv1_is_fused, input, workspace1) != 0) goto error;
     
     // Debug: Save cv1 output (only if debug enabled)
     if (g_sppf_debug_enabled) {
@@ -362,7 +364,8 @@ int sppf_forward(sppf_block_t* block, const tensor_t* input, tensor_t* output,
     }
     
     // cv2: 4*c_ -> c2 (fused Conv+BN+SiLU to reduce DDR traffic)
-    if (conv2d_fused_bn_silu_forward(&block->cv2, block->cv2_is_fused ? NULL : &block->cv2_bn, workspace3, output) != 0) {
+    if (conv2d_quant_bn_silu_forward(&block->cv2, block->cv2_is_fused ? NULL : &block->cv2_bn,
+            block->cv2_is_fused, workspace3, output) != 0) {
         tensor_free(x_copy);
         tensor_free(y1);
         tensor_free(y2);
@@ -396,10 +399,111 @@ error:
     return -1;
 }
 
-int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* prefix) {
+static int sppf_conv_bn_silu_float(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
+                                  const tensor_t* input, tensor_t* output) {
+    if (conv2d_forward(conv, input, output) != 0) return -1;
+    if (bn && !fused && batchnorm2d_forward(bn, output, output) != 0) return -1;
+    activation_silu(output);
+    return 0;
+}
+
+int sppf_forward_float(sppf_block_t* block, const tensor_t* input, tensor_t* output,
+                      tensor_t* workspace1, tensor_t* workspace2, tensor_t* workspace3) {
+    if (!block || !input || !output) return -1;
+    if (!block->cv1.weight) return -1;
+
+    int need_free_ws1 = 0, need_free_ws2 = 0, need_free_ws3 = 0;
+    if (!workspace1) {
+        workspace1 = tensor_create(input->n, block->c_, input->h, input->w);
+        if (!workspace1) return -1;
+        need_free_ws1 = 1;
+    }
+    if (!workspace2) {
+        workspace2 = tensor_create(input->n, block->c_, input->h, input->w);
+        if (!workspace2) {
+            if (need_free_ws1) tensor_free(workspace1);
+            return -1;
+        }
+        need_free_ws2 = 1;
+    }
+    if (!workspace3) {
+        workspace3 = tensor_create(input->n, 4 * block->c_, input->h, input->w);
+        if (!workspace3) {
+            if (need_free_ws1) tensor_free(workspace1);
+            if (need_free_ws2) tensor_free(workspace2);
+            return -1;
+        }
+        need_free_ws3 = 1;
+    }
+
+    if (sppf_conv_bn_silu_float(&block->cv1, &block->cv1_bn, block->cv1_is_fused, input, workspace1) != 0) {
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        if (need_free_ws3) tensor_free(workspace3);
+        return -1;
+    }
+
+    tensor_t* x = workspace1;
+    tensor_t* y1 = tensor_create(input->n, block->c_, input->h, input->w);
+    tensor_t* y2 = tensor_create(input->n, block->c_, input->h, input->w);
+    tensor_t* y4 = tensor_create(input->n, block->c_, input->h, input->w);
+    tensor_t* x_copy = tensor_create(input->n, block->c_, input->h, input->w);
+    if (!y1 || !y2 || !y4 || !x_copy) {
+        if (y1) tensor_free(y1);
+        if (y2) tensor_free(y2);
+        if (y4) tensor_free(y4);
+        if (x_copy) tensor_free(x_copy);
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        if (need_free_ws3) tensor_free(workspace3);
+        return -1;
+    }
+    tensor_copy(x_copy, x);
+    if (maxpool2d_forward(&block->pool_params, x, y1) != 0 ||
+        maxpool2d_forward(&block->pool_params, y1, y2) != 0 ||
+        maxpool2d_forward(&block->pool_params, y2, y4) != 0) {
+        tensor_free(x_copy);
+        tensor_free(y1);
+        tensor_free(y2);
+        tensor_free(y4);
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        if (need_free_ws3) tensor_free(workspace3);
+        return -1;
+    }
+    const tensor_t* concat_inputs[4] = {x_copy, y1, y2, y4};
+    if (concat_forward(concat_inputs, 4, workspace3) != 0) {
+        tensor_free(x_copy);
+        tensor_free(y1);
+        tensor_free(y2);
+        tensor_free(y4);
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        if (need_free_ws3) tensor_free(workspace3);
+        return -1;
+    }
+    tensor_free(x_copy);
+    tensor_free(y1);
+    tensor_free(y2);
+    tensor_free(y4);
+
+    if (sppf_conv_bn_silu_float(&block->cv2, &block->cv2_bn, block->cv2_is_fused, workspace3, output) != 0) {
+        if (need_free_ws1) tensor_free(workspace1);
+        if (need_free_ws2) tensor_free(workspace2);
+        if (need_free_ws3) tensor_free(workspace3);
+        return -1;
+    }
+    if (need_free_ws1) tensor_free(workspace1);
+    if (need_free_ws2) tensor_free(workspace2);
+    if (need_free_ws3) tensor_free(workspace3);
+    return 0;
+}
+
+int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* prefix, void* int8_loader) {
     if (!block || !weights_loader) return -1;
     
     weights_loader_t* loader = (weights_loader_t*)weights_loader;
+    weights_loader_int8_t* int8 = (weights_loader_int8_t*)int8_loader;
     char name[256];
     int32_t shape[4];
     int num_dims;
@@ -442,6 +546,12 @@ int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* pre
             batchnorm2d_load_weights(&block->cv1_bn, bn_w, bn_b, bn_mean, bn_var);
         }
     }
+    if (int8) {
+        snprintf(name, sizeof(name), "%s.cv1.conv.weight", prefix);
+        const int8_t* qptr; float scale_w; size_t numel;
+        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
+            conv2d_load_weights_int8(&block->cv1, qptr, numel, scale_w, fused_bias);
+    }
     
     // Load cv2
     snprintf(name, sizeof(name), "%s.cv2.conv.weight", prefix);
@@ -480,6 +590,12 @@ int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* pre
         if (bn_w && bn_b && bn_mean && bn_var) {
             batchnorm2d_load_weights(&block->cv2_bn, bn_w, bn_b, bn_mean, bn_var);
         }
+    }
+    if (int8) {
+        snprintf(name, sizeof(name), "%s.cv2.conv.weight", prefix);
+        const int8_t* qptr; float scale_w; size_t numel;
+        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
+            conv2d_load_weights_int8(&block->cv2, qptr, numel, scale_w, fused_bias);
     }
     
     return 0;

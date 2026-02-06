@@ -1,6 +1,9 @@
 #include "conv2d.h"
 #include "batchnorm2d.h"
+#include "activation.h"
 #include "../core/tensor.h"
+#include "../validation/quant_util.h"
+#include "../validation/conv2d_int8.h"
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -8,44 +11,38 @@
 #include <stdint.h>
 
 /* ---------------------------------------------------------------------------
- * One-Pixel Compute Kernels (Separation of Responsibilities)
- * Each function computes exactly one output pixel (MAC only).
- * HW: Can be replaced by a custom accelerator; short combinational path.
+ * One-Pixel Compute Kernels (float path only, for conv2d_forward / reference)
  * --------------------------------------------------------------------------- */
 
-/* Conv 출력을 DDR에 쓰지 않고 레지스터에서 BN+SiLU 적용 후 한 번만 기록 (DDR 왕복 감소) */
-static inline float conv_fused_apply_bn_silu(float sum, int32_t oc, const batchnorm2d_layer_t* bn) {
-    if (bn) {
-        float inv_std = 1.0f / sqrtf(bn->running_var[oc] + bn->params.eps);
-        sum = (sum - bn->running_mean[oc]) * inv_std * bn->weight[oc] + bn->bias[oc];
+/* 입력(activation) 양자화용: 현재 입력 텐서의 min/max로 scale_in 계산.
+ * 매 forward마다 호출되므로 "동적 양자화". Calibration으로 scale_in을 고정해 export하면 제거 가능. */
+static void tensor_minmax(const float* data, size_t count, float* out_min, float* out_max) {
+    if (count == 0) return;
+    float mn = data[0], mx = data[0];
+    for (size_t i = 1; i < count; i++) {
+        if (data[i] < mn) mn = data[i];
+        if (data[i] > mx) mx = data[i];
     }
-    return sum * (1.0f / (1.0f + expf(-sum)));
+    *out_min = mn;
+    *out_max = mx;
 }
 
 int conv2d_init(conv2d_layer_t* layer, int32_t in_channels, const conv2d_params_t* params) {
     if (!layer || !params) return -1;
-    
     layer->params = *params;
     layer->in_channels = in_channels;
-    
-    // Calculate weight size
-    size_t weight_size = (size_t)(params->out_channels * in_channels * 
+    layer->scale_w = 0.f;
+    layer->q_weight = NULL;
+    size_t weight_size = (size_t)(params->out_channels * in_channels *
                                    params->kernel_size * params->kernel_size);
-    
     layer->weight = (float*)calloc(weight_size, sizeof(float));
     if (!layer->weight) return -1;
-    
-    // Allocate bias if needed
-    if (params->groups == 1) {  // Standard conv has bias
+    if (params->groups == 1) {
         layer->bias = (float*)calloc(params->out_channels, sizeof(float));
-        if (!layer->bias) {
-            free(layer->weight);
-            return -1;
-        }
+        if (!layer->bias) { free(layer->weight); return -1; }
     } else {
         layer->bias = NULL;
     }
-    
     return 0;
 }
 
@@ -53,21 +50,46 @@ void conv2d_free(conv2d_layer_t* layer) {
     if (layer) {
         if (layer->weight) free(layer->weight);
         if (layer->bias) free(layer->bias);
+        if (layer->q_weight) free(layer->q_weight);
         memset(layer, 0, sizeof(conv2d_layer_t));
     }
 }
 
 int conv2d_load_weights(conv2d_layer_t* layer, const float* weight_buf, const float* bias_buf) {
     if (!layer || !weight_buf) return -1;
-    
     size_t weight_size = (size_t)(layer->params.out_channels * layer->in_channels *
                                    layer->params.kernel_size * layer->params.kernel_size);
     memcpy(layer->weight, weight_buf, weight_size * sizeof(float));
-    
-    if (bias_buf && layer->bias) {
+    if (bias_buf && layer->bias)
         memcpy(layer->bias, bias_buf, layer->params.out_channels * sizeof(float));
+    /* INT8 가중치: C에서 float→int8 변환 (int8 export 없을 때만). Export 시 int8 쓰면 load_weights_int8 사용. */
+    float w_min, w_max;
+    tensor_minmax(layer->weight, weight_size, &w_min, &w_max);
+    quant_scale_t qs;
+    quant_scale_symmetric_from_minmax(w_min, w_max, &qs);
+    layer->scale_w = qs.scale;
+    layer->q_weight = (int8_t*)malloc(weight_size * sizeof(int8_t));
+    if (layer->q_weight)
+        quantize_float_to_int8(layer->weight, weight_size, layer->scale_w, layer->q_weight);
+    return 0;
+}
+
+int conv2d_load_weights_int8(conv2d_layer_t* layer, const int8_t* q_weight_buf, size_t q_weight_numel,
+                              float scale_w, const float* bias_buf) {
+    if (!layer || !q_weight_buf || scale_w <= 0.f) return -1;
+    size_t need = (size_t)(layer->params.out_channels * layer->in_channels *
+                           layer->params.kernel_size * layer->params.kernel_size);
+    if (q_weight_numel != need) return -1;
+    if (layer->weight) {
+        free(layer->weight);
+        layer->weight = NULL;
     }
-    
+    layer->scale_w = scale_w;
+    layer->q_weight = (int8_t*)malloc(need * sizeof(int8_t));
+    if (!layer->q_weight) return -1;
+    memcpy(layer->q_weight, q_weight_buf, need * sizeof(int8_t));
+    if (bias_buf && layer->bias)
+        memcpy(layer->bias, bias_buf, layer->params.out_channels * sizeof(float));
     return 0;
 }
 
@@ -172,6 +194,7 @@ static float conv_generic_one_pixel(const conv2d_layer_t* layer, const tensor_t*
 
 int conv2d_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t* output) {
     if (!layer || !input || !output) return -1;
+    if (!layer->weight) return -1;  /* int8-only 로드 시 float 경로 불가 */
     
     /* 1) Dimension and boundary validation */
     int32_t out_h, out_w;
@@ -243,63 +266,60 @@ int conv2d_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t*
     return 0;
 }
 
-/* Fused Conv+BN+SiLU: one_pixel MAC + BN+SiLU 후 한 번만 기록 (DDR 왕복 감소) */
-int conv2d_fused_bn_silu_forward(const conv2d_layer_t* layer, const struct batchnorm2d_layer_t* bn,
-                                  const tensor_t* input, tensor_t* output) {
-    if (!layer || !input || !output) return -1;
+/* 단일 경로: input(float) → quantize → int8 Conv+BN → dequant → float → SiLU. Conv+BN은 가속기용 int8. */
+int conv2d_quant_bn_silu_forward(const conv2d_layer_t* layer, const struct batchnorm2d_layer_t* bn,
+                                 int bn_fused, const tensor_t* input, tensor_t* output) {
+    if (!layer || !input || !output || !layer->q_weight) return -1;
     int32_t out_h, out_w;
     conv2d_output_size(input->h, input->w, &layer->params, &out_h, &out_w);
     if (output->n != input->n || output->c != layer->params.out_channels ||
         output->h != out_h || output->w != out_w || input->c != layer->in_channels ||
         input->data == output->data)
         return -1;
-    
     int32_t k = layer->params.kernel_size;
     int32_t s = layer->params.stride;
     int32_t p = layer->params.padding;
+    int32_t d = layer->params.dilation;
     int32_t out_c = layer->params.out_channels;
-    int32_t in_h = input->h;
-    int32_t in_w = input->w;
-    
-    /* Loop + one_pixel kernel + BN+SiLU + write */
-    if (k == 1 && s == 1 && p == 0) {
-        for (int32_t b = 0; b < input->n; b++) {
-            for (int32_t hy = 0; hy < in_h; hy++) {
-                for (int32_t wx = 0; wx < in_w; wx++) {
-                    for (int32_t oc = 0; oc < out_c; oc++) {
-                        float sum = conv1x1_one_pixel(layer, input, b, oc, hy, wx);
-                        *tensor_at(output, b, oc, hy, wx) = conv_fused_apply_bn_silu(sum, oc, bn);
-                    }
-                }
-            }
-        }
-    } else if (k == 3 && layer->params.dilation == 1 && p == 1 && (s == 1 || s == 2)) {
-        int32_t out_h = output->h;
-        int32_t out_w = output->w;
-        for (int32_t b = 0; b < input->n; b++) {
-            for (int32_t oc = 0; oc < out_c; oc++) {
-                for (int32_t oh = 0; oh < out_h; oh++) {
-                    for (int32_t ow = 0; ow < out_w; ow++) {
-                        float sum = conv3x3_one_pixel(layer, input, b, oc, oh, ow);
-                        *tensor_at(output, b, oc, oh, ow) = conv_fused_apply_bn_silu(sum, oc, bn);
-                    }
-                }
-            }
-        }
-    } else {
-        int32_t out_h = output->h;
-        int32_t out_w = output->w;
-        for (int32_t b = 0; b < input->n; b++) {
-            for (int32_t oc = 0; oc < out_c; oc++) {
-                for (int32_t oh = 0; oh < out_h; oh++) {
-                    for (int32_t ow = 0; ow < out_w; ow++) {
-                        float sum = conv_generic_one_pixel(layer, input, b, oc, oh, ow);
-                        *tensor_at(output, b, oc, oh, ow) = conv_fused_apply_bn_silu(sum, oc, bn);
-                    }
-                }
-            }
+    int32_t in_c = layer->in_channels;
+    size_t in_count = (size_t)input->n * (size_t)in_c * (size_t)input->h * (size_t)input->w;
+    size_t out_count = (size_t)output->n * (size_t)out_c * (size_t)out_h * (size_t)out_w;
+
+    /* scale_in: 입력 activation 동적 양자화. Calibration으로 scale_in 고정 시 이 minmax 제거 가능. */
+    float in_min, in_max;
+    tensor_minmax(input->data, in_count, &in_min, &in_max);
+    quant_scale_t scale_in_q;
+    quant_scale_symmetric_from_minmax(in_min, in_max, &scale_in_q);
+    float scale_in = scale_in_q.scale;
+
+    int8_t* q_input = (int8_t*)malloc(in_count * sizeof(int8_t));
+    int32_t* acc32 = (int32_t*)malloc(out_count * sizeof(int32_t));
+    if (!q_input || !acc32) {
+        if (q_input) free(q_input);
+        if (acc32) free(acc32);
+        return -1;
+    }
+    quantize_float_to_int8(input->data, in_count, scale_in, q_input);
+    if (conv2d_int8_forward(q_input, layer->q_weight, input->n, in_c, input->h, input->w,
+                            out_c, k, s, p, d, acc32) != 0) {
+        free(q_input);
+        free(acc32);
+        return -1;
+    }
+    free(q_input);
+    dequant_acc32_to_float(acc32, out_count, out_c, out_h, out_w,
+                           scale_in, layer->scale_w, layer->bias, output->data);
+    free(acc32);
+
+    if (bn && !bn_fused) {
+        tensor_t* tmp = tensor_create(output->n, output->c, output->h, output->w);
+        if (tmp) {
+            batchnorm2d_forward(bn, output, tmp);
+            tensor_copy(output, tmp);
+            tensor_free(tmp);
         }
     }
+    activation_silu(output);
     return 0;
 }
 

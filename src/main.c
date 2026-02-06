@@ -12,39 +12,11 @@
 #include <sys/types.h>
 #endif
 #include "core/tensor.h"
+#include "core/yolo_config.h"
 #include "models/yolov5n_build.h"
 #include "models/yolov5n_infer.h"
 #include "postprocess/detect.h"
 #include "postprocess/nms.h"
-
-/* UART 검증용: platform.c와 동일한 체크섬/통계 (P3,P4,P5 비교)
- * chk 비교가 유효하려면:
- * - 순회 범위: data[0]부터 size바이트까지, 메모리 주소 순서(바이트 단위)로만 순회.
- * - 양쪽 모두 NCHW 레이아웃, 같은 shape(n,c,h,w) → size = n*c*h*w*sizeof(float).
- * - 엔디안이 같아야 함. 순서/범위가 조금만 달라도 chk가 달라지므로, 먼저 shape가 같은지 확인 후 chk 비교. */
-static uint32_t checksum32_bytes(const void* data, size_t size) {
-    if (!data || size == 0) return 0;
-    const uint8_t* bytes = (const uint8_t*)data;
-    uint32_t checksum = 0;
-    for (size_t i = 0; i < size; i++) {
-        checksum += bytes[i];
-        checksum = (checksum << 1) | (checksum >> 31);
-    }
-    return checksum;
-}
-
-/* 비교용: 데이터 앞 N바이트만 hex로 출력 (chk 대신 임베디드와 동일한지 빠르게 확인) */
-#define TENSOR_HEAD_BYTES 32
-static void print_tensor_head(const char* name, const tensor_t* t, size_t num_bytes) {
-    if (!t || !t->data || num_bytes == 0) return;
-    size_t data_bytes = tensor_size(t) * sizeof(float);
-    if (num_bytes > data_bytes) num_bytes = data_bytes;
-    const uint8_t* p = (const uint8_t*)t->data;
-    printf("  %s head(%zuB):", name, num_bytes);
-    for (size_t i = 0; i < num_bytes; i++)
-        printf(" %02X", (unsigned)p[i]);
-    printf("\n");
-}
 
 static void print_tensor_stats_p(const char* name, const tensor_t* t) {
     if (!t || !t->data) return;
@@ -59,11 +31,8 @@ static void print_tensor_stats_p(const char* name, const tensor_t* t) {
         sum += val;
     }
     double mean = sum / (double)count;
-    uint32_t chk = checksum32_bytes(data, count * sizeof(float));
-    /* shape 출력: chk 비교 전에 양쪽이 같은 범위(같은 N,C,H,W)인지 확인용 */
-    printf("  %s: shape=(%d,%d,%d,%d) chk=0x%08X min=%.4f max=%.4f mean=%.4f\n",
-           name, t->n, t->c, t->h, t->w, (unsigned)chk, min_val, max_val, mean);
-    print_tensor_head(name, t, TENSOR_HEAD_BYTES);
+    printf("  %s: shape=(%d,%d,%d,%d) min=%.4f max=%.4f mean=%.4f\n",
+           name, t->n, t->c, t->h, t->w, min_val, max_val, mean);
 }
 
 /* 레이어별 통계 콜백 (UART/임베디드 검증용) */
@@ -124,8 +93,8 @@ void print_usage(const char* prog_name) {
     printf("Arguments:\n");
     printf("  image_name        Image name (without extension, e.g., 'bus')\n");
     printf("                    Input tensor will be loaded from: data/inputs/<image_name>.bin\n");
-    printf("  weights.bin       Model weights file (default: weights/yolov5n/weights_unfused.bin)\n");
-    printf("  model_meta.json   Model metadata (default: weights/yolov5n/model_meta_unfused.json)\n");
+    printf("  weights.bin       Model weights file (default: " YOLO_WEIGHTS_DEFAULT_DIR "/" YOLO_WEIGHTS_DEFAULT_FILE ")\n");
+    printf("  model_meta.json   Model metadata (default: " YOLO_WEIGHTS_DEFAULT_DIR "/" YOLO_META_DEFAULT_FILE ")\n");
     printf("\n");
     printf("Example:\n");
     printf("  %s bus\n", prog_name);
@@ -232,10 +201,10 @@ int main(int argc, char* argv[]) {
         snprintf(weights_paths[1], sizeof(weights_paths[1]), "../%s", weights_path_arg);
         snprintf(weights_paths[2], sizeof(weights_paths[2]), "../../%s", weights_path_arg);
     } else {
-        // Default to unfused weights (BN-separate format for embedded/Vitis compatibility)
-        snprintf(weights_paths[0], sizeof(weights_paths[0]), "weights/yolov5n/weights_unfused.bin");
-        snprintf(weights_paths[1], sizeof(weights_paths[1]), "../weights/yolov5n/weights_unfused.bin");
-        snprintf(weights_paths[2], sizeof(weights_paths[2]), "../../weights/yolov5n/weights_unfused.bin");
+        /* Default: fused weights (단일 Conv+BN+SiLU, 임베디드 메모리/연산 최소화) */
+        snprintf(weights_paths[0], sizeof(weights_paths[0]), "%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_WEIGHTS_DEFAULT_FILE);
+        snprintf(weights_paths[1], sizeof(weights_paths[1]), "../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_WEIGHTS_DEFAULT_FILE);
+        snprintf(weights_paths[2], sizeof(weights_paths[2]), "../../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_WEIGHTS_DEFAULT_FILE);
     }
     
     const char* found_weights_path = NULL;
@@ -267,10 +236,10 @@ int main(int argc, char* argv[]) {
         snprintf(meta_paths[1], sizeof(meta_paths[1]), "../%s", model_meta_path_arg);
         snprintf(meta_paths[2], sizeof(meta_paths[2]), "../../%s", model_meta_path_arg);
     } else {
-        // Default to unfused metadata (matches weights_unfused.bin)
-        snprintf(meta_paths[0], sizeof(meta_paths[0]), "weights/yolov5n/model_meta_unfused.json");
-        snprintf(meta_paths[1], sizeof(meta_paths[1]), "../weights/yolov5n/model_meta_unfused.json");
-        snprintf(meta_paths[2], sizeof(meta_paths[2]), "../../weights/yolov5n/model_meta_unfused.json");
+        /* Default: fused 메타 (weights_fused.bin과 쌍) */
+        snprintf(meta_paths[0], sizeof(meta_paths[0]), "%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_META_DEFAULT_FILE);
+        snprintf(meta_paths[1], sizeof(meta_paths[1]), "../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_META_DEFAULT_FILE);
+        snprintf(meta_paths[2], sizeof(meta_paths[2]), "../../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_META_DEFAULT_FILE);
     }
     
     const char* found_meta_path = NULL;
@@ -371,12 +340,11 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Warning: Failed to set output directory: %s\n", output_dir);
     }
     
-    /* 레이어별 체크섬/통계 출력 (UART·임베디드와 비교용) */
-    yolov5n_set_layer_stats_callback(layer_stats_callback);
+    /* 레이어별 한 줄 출력(shape, min/max/mean, ms)은 yolov5n_forward 내부에서 출력 */
+    /* yolov5n_set_layer_stats_callback(layer_stats_callback); */
     
     // Forward pass
     printf("\nRunning forward pass...\n");
-    printf("=== Layer stats (chk/min/max/mean) ===\n");
     print_tensor_stats_p("input", input);
     fflush(stdout);
     

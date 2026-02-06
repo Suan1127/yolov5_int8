@@ -1,7 +1,9 @@
 #include "bottleneck.h"
 #include "../core/common.h"
+#include "../core/tensor.h"
 #include <stdlib.h>
 #include "../core/weights_loader.h"
+#include "../ops/activation.h"
 
 int bottleneck_init(bottleneck_t* block, int32_t c1, int32_t c2, int shortcut) {
     if (!block) return -1;
@@ -113,7 +115,8 @@ int bottleneck_forward(bottleneck_t* block, const tensor_t* input, tensor_t* out
     // Memory relationship check removed - issue resolved
     
     // Conv1 -> BN1 -> SiLU (fused to reduce DDR read/write)
-    if (conv2d_fused_bn_silu_forward(&block->conv1, block->conv1_is_fused ? NULL : &block->bn1, input, workspace) != 0) {
+    if (conv2d_quant_bn_silu_forward(&block->conv1, block->conv1_is_fused ? NULL : &block->bn1,
+            block->conv1_is_fused, input, workspace) != 0) {
         if (need_free_workspace && workspace) tensor_free(workspace);
         return -1;
     }
@@ -124,7 +127,8 @@ int bottleneck_forward(bottleneck_t* block, const tensor_t* input, tensor_t* out
         if (need_free_workspace && workspace) tensor_free(workspace);
         return -1;
     }
-    if (conv2d_fused_bn_silu_forward(&block->conv2, block->conv2_is_fused ? NULL : &block->bn2, workspace, temp) != 0) {
+    if (conv2d_quant_bn_silu_forward(&block->conv2, block->conv2_is_fused ? NULL : &block->bn2,
+            block->conv2_is_fused, workspace, temp) != 0) {
         tensor_free(temp);
         if (need_free_workspace && workspace) tensor_free(workspace);
         return -1;
@@ -149,6 +153,57 @@ int bottleneck_forward(bottleneck_t* block, const tensor_t* input, tensor_t* out
         tensor_free(workspace);
     }
     
+    return 0;
+}
+
+/* Float path: conv2d_forward + (BN if !fused) + SiLU. Requires layer->weight. */
+static int conv_bn_silu_float(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
+                              const tensor_t* input, tensor_t* output) {
+    if (conv2d_forward(conv, input, output) != 0) return -1;
+    if (bn && !fused && batchnorm2d_forward(bn, output, output) != 0) return -1;
+    activation_silu(output);
+    return 0;
+}
+
+int bottleneck_forward_float(bottleneck_t* block, const tensor_t* input, tensor_t* output, tensor_t* workspace) {
+    if (!block || !input || !output) return -1;
+    if (!block->conv1.weight) return -1;  /* float path requires float weights */
+
+    int need_free_workspace = 0;
+    if (!workspace) {
+        if (input->data == output->data) {
+            workspace = tensor_create(input->n, block->c2, input->h, input->w);
+            if (!workspace) return -1;
+            need_free_workspace = 1;
+        } else {
+            workspace = output;
+        }
+    }
+
+    if (conv_bn_silu_float(&block->conv1, &block->bn1, block->conv1_is_fused, input, workspace) != 0) {
+        if (need_free_workspace && workspace) tensor_free(workspace);
+        return -1;
+    }
+
+    tensor_t* temp = tensor_create(input->n, block->c2, input->h, input->w);
+    if (!temp) {
+        if (need_free_workspace && workspace) tensor_free(workspace);
+        return -1;
+    }
+    if (conv_bn_silu_float(&block->conv2, &block->bn2, block->conv2_is_fused, workspace, temp) != 0) {
+        tensor_free(temp);
+        if (need_free_workspace && workspace) tensor_free(workspace);
+        return -1;
+    }
+
+    if (block->shortcut) {
+        for (size_t i = 0; i < tensor_size(input); i++)
+            output->data[i] = input->data[i] + temp->data[i];
+    } else {
+        tensor_copy(output, temp);
+    }
+    tensor_free(temp);
+    if (need_free_workspace && workspace) tensor_free(workspace);
     return 0;
 }
 

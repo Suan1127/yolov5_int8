@@ -45,15 +45,21 @@ int sppf_init(sppf_block_t* block, int32_t c1, int32_t c2, int32_t k);
 void sppf_free(sppf_block_t* block);
 
 /**
- * Forward pass
+ * Forward pass (int8 quant path)
  */
 int sppf_forward(sppf_block_t* block, const tensor_t* input, tensor_t* output,
                  tensor_t* workspace1, tensor_t* workspace2, tensor_t* workspace3);
 
 /**
- * Load weights from weights loader
+ * Forward pass using float conv only (validation reference). Block must have float weights.
  */
-int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* prefix);
+int sppf_forward_float(sppf_block_t* block, const tensor_t* input, tensor_t* output,
+                       tensor_t* workspace1, tensor_t* workspace2, tensor_t* workspace3);
+
+/**
+ * Load weights. If int8_loader is non-NULL, loads int8 for cv1 and cv2.
+ */
+int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* prefix, void* int8_loader);
 
 /**
  * Set debug directory for intermediate outputs (for debugging)

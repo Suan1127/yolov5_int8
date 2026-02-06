@@ -34,9 +34,14 @@ int bottleneck_init(bottleneck_t* block, int32_t c1, int32_t c2, int shortcut);
 void bottleneck_free(bottleneck_t* block);
 
 /**
- * Forward pass
+ * Forward pass (int8 quant path)
  */
 int bottleneck_forward(bottleneck_t* block, const tensor_t* input, tensor_t* output, tensor_t* workspace);
+
+/**
+ * Forward pass using float conv only (for validation reference). Requires block loaded with float weights.
+ */
+int bottleneck_forward_float(bottleneck_t* block, const tensor_t* input, tensor_t* output, tensor_t* workspace);
 
 /**
  * Load weights from weights loader

@@ -1,0 +1,464 @@
+{
+  "order": [
+    "model.0.conv.weight",
+    "model.1.conv.weight",
+    "model.10.conv.weight",
+    "model.13.cv1.conv.weight",
+    "model.13.cv2.conv.weight",
+    "model.13.cv3.conv.weight",
+    "model.13.m.0.cv1.conv.weight",
+    "model.13.m.0.cv2.conv.weight",
+    "model.14.conv.weight",
+    "model.17.cv1.conv.weight",
+    "model.17.cv2.conv.weight",
+    "model.17.cv3.conv.weight",
+    "model.17.m.0.cv1.conv.weight",
+    "model.17.m.0.cv2.conv.weight",
+    "model.18.conv.weight",
+    "model.2.cv1.conv.weight",
+    "model.2.cv2.conv.weight",
+    "model.2.cv3.conv.weight",
+    "model.2.m.0.cv1.conv.weight",
+    "model.2.m.0.cv2.conv.weight",
+    "model.20.cv1.conv.weight",
+    "model.20.cv2.conv.weight",
+    "model.20.cv3.conv.weight",
+    "model.20.m.0.cv1.conv.weight",
+    "model.20.m.0.cv2.conv.weight",
+    "model.21.conv.weight",
+    "model.23.cv1.conv.weight",
+    "model.23.cv2.conv.weight",
+    "model.23.cv3.conv.weight",
+    "model.23.m.0.cv1.conv.weight",
+    "model.23.m.0.cv2.conv.weight",
+    "model.3.conv.weight",
+    "model.4.cv1.conv.weight",
+    "model.4.cv2.conv.weight",
+    "model.4.cv3.conv.weight",
+    "model.4.m.0.cv1.conv.weight",
+    "model.4.m.0.cv2.conv.weight",
+    "model.4.m.1.cv1.conv.weight",
+    "model.4.m.1.cv2.conv.weight",
+    "model.5.conv.weight",
+    "model.6.cv1.conv.weight",
+    "model.6.cv2.conv.weight",
+    "model.6.cv3.conv.weight",
+    "model.6.m.0.cv1.conv.weight",
+    "model.6.m.0.cv2.conv.weight",
+    "model.6.m.1.cv1.conv.weight",
+    "model.6.m.1.cv2.conv.weight",
+    "model.6.m.2.cv1.conv.weight",
+    "model.6.m.2.cv2.conv.weight",
+    "model.7.conv.weight",
+    "model.8.cv1.conv.weight",
+    "model.8.cv2.conv.weight",
+    "model.8.cv3.conv.weight",
+    "model.8.m.0.cv1.conv.weight",
+    "model.8.m.0.cv2.conv.weight",
+    "model.9.cv1.conv.weight",
+    "model.9.cv2.conv.weight"
+  ],
+  "scales": {
+    "model.0.conv.weight": 0.09135900332233099,
+    "model.1.conv.weight": 0.02331807669692152,
+    "model.10.conv.weight": 0.018755687503364142,
+    "model.13.cv1.conv.weight": 0.0056711163107804425,
+    "model.13.cv2.conv.weight": 0.0059558523921516,
+    "model.13.cv3.conv.weight": 0.009813688871428722,
+    "model.13.m.0.cv1.conv.weight": 0.013387206971176027,
+    "model.13.m.0.cv2.conv.weight": 0.007307886608003631,
+    "model.14.conv.weight": 0.008769321629381556,
+    "model.17.cv1.conv.weight": 0.006127841359987033,
+    "model.17.cv2.conv.weight": 0.010405902787456362,
+    "model.17.cv3.conv.weight": 0.029684295804481807,
+    "model.17.m.0.cv1.conv.weight": 0.01639757381649468,
+    "model.17.m.0.cv2.conv.weight": 0.012679250221552812,
+    "model.18.conv.weight": 0.0022793257330346295,
+    "model.2.cv1.conv.weight": 0.006219839486550158,
+    "model.2.cv2.conv.weight": 0.010136738536864753,
+    "model.2.cv3.conv.weight": 0.006978141041252557,
+    "model.2.m.0.cv1.conv.weight": 0.025183401708527814,
+    "model.2.m.0.cv2.conv.weight": 0.007435927240867314,
+    "model.20.cv1.conv.weight": 0.008386177340830405,
+    "model.20.cv2.conv.weight": 0.016406858999898116,
+    "model.20.cv3.conv.weight": 0.02479796146783303,
+    "model.20.m.0.cv1.conv.weight": 0.00948380766891119,
+    "model.20.m.0.cv2.conv.weight": 0.011832927155682422,
+    "model.21.conv.weight": 0.0023537156150096983,
+    "model.23.cv1.conv.weight": 0.010325171816067433,
+    "model.23.cv2.conv.weight": 0.008362966259633462,
+    "model.23.cv3.conv.weight": 0.0171605545704759,
+    "model.23.m.0.cv1.conv.weight": 0.009777803120650644,
+    "model.23.m.0.cv2.conv.weight": 0.009453730320367287,
+    "model.3.conv.weight": 0.004163102840814065,
+    "model.4.cv1.conv.weight": 0.004351269541762945,
+    "model.4.cv2.conv.weight": 0.015231273305697703,
+    "model.4.cv3.conv.weight": 0.005412744255516473,
+    "model.4.m.0.cv1.conv.weight": 0.017708922934344434,
+    "model.4.m.0.cv2.conv.weight": 0.006025234545309712,
+    "model.4.m.1.cv1.conv.weight": 0.011592687584283784,
+    "model.4.m.1.cv2.conv.weight": 0.008525350901085561,
+    "model.5.conv.weight": 0.01308916497418261,
+    "model.6.cv1.conv.weight": 0.0051131140528701425,
+    "model.6.cv2.conv.weight": 0.014029985337745486,
+    "model.6.cv3.conv.weight": 0.005247077603978435,
+    "model.6.m.0.cv1.conv.weight": 0.028343178155853993,
+    "model.6.m.0.cv2.conv.weight": 0.0033458527617567166,
+    "model.6.m.1.cv1.conv.weight": 0.02235451833469661,
+    "model.6.m.1.cv2.conv.weight": 0.005519896041689895,
+    "model.6.m.2.cv1.conv.weight": 0.009963276818042665,
+    "model.6.m.2.cv2.conv.weight": 0.007547676093935028,
+    "model.7.conv.weight": 0.003831569369383684,
+    "model.8.cv1.conv.weight": 0.004324211379674476,
+    "model.8.cv2.conv.weight": 0.008187072483573372,
+    "model.8.cv3.conv.weight": 0.007888131254301297,
+    "model.8.m.0.cv1.conv.weight": 0.03917541654091182,
+    "model.8.m.0.cv2.conv.weight": 0.004670092440026951,
+    "model.9.cv1.conv.weight": 0.005807801025120292,
+    "model.9.cv2.conv.weight": 0.006606485899977797
+  },
+  "shapes": {
+    "model.0.conv.weight": [
+      16,
+      3,
+      6,
+      6
+    ],
+    "model.1.conv.weight": [
+      32,
+      16,
+      3,
+      3
+    ],
+    "model.10.conv.weight": [
+      128,
+      256,
+      1,
+      1
+    ],
+    "model.13.cv1.conv.weight": [
+      64,
+      256,
+      1,
+      1
+    ],
+    "model.13.cv2.conv.weight": [
+      64,
+      256,
+      1,
+      1
+    ],
+    "model.13.cv3.conv.weight": [
+      128,
+      128,
+      1,
+      1
+    ],
+    "model.13.m.0.cv1.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.13.m.0.cv2.conv.weight": [
+      64,
+      64,
+      3,
+      3
+    ],
+    "model.14.conv.weight": [
+      64,
+      128,
+      1,
+      1
+    ],
+    "model.17.cv1.conv.weight": [
+      32,
+      128,
+      1,
+      1
+    ],
+    "model.17.cv2.conv.weight": [
+      32,
+      128,
+      1,
+      1
+    ],
+    "model.17.cv3.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.17.m.0.cv1.conv.weight": [
+      32,
+      32,
+      1,
+      1
+    ],
+    "model.17.m.0.cv2.conv.weight": [
+      32,
+      32,
+      3,
+      3
+    ],
+    "model.18.conv.weight": [
+      64,
+      64,
+      3,
+      3
+    ],
+    "model.2.cv1.conv.weight": [
+      16,
+      32,
+      1,
+      1
+    ],
+    "model.2.cv2.conv.weight": [
+      16,
+      32,
+      1,
+      1
+    ],
+    "model.2.cv3.conv.weight": [
+      32,
+      32,
+      1,
+      1
+    ],
+    "model.2.m.0.cv1.conv.weight": [
+      16,
+      16,
+      1,
+      1
+    ],
+    "model.2.m.0.cv2.conv.weight": [
+      16,
+      16,
+      3,
+      3
+    ],
+    "model.20.cv1.conv.weight": [
+      64,
+      128,
+      1,
+      1
+    ],
+    "model.20.cv2.conv.weight": [
+      64,
+      128,
+      1,
+      1
+    ],
+    "model.20.cv3.conv.weight": [
+      128,
+      128,
+      1,
+      1
+    ],
+    "model.20.m.0.cv1.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.20.m.0.cv2.conv.weight": [
+      64,
+      64,
+      3,
+      3
+    ],
+    "model.21.conv.weight": [
+      128,
+      128,
+      3,
+      3
+    ],
+    "model.23.cv1.conv.weight": [
+      128,
+      256,
+      1,
+      1
+    ],
+    "model.23.cv2.conv.weight": [
+      128,
+      256,
+      1,
+      1
+    ],
+    "model.23.cv3.conv.weight": [
+      256,
+      256,
+      1,
+      1
+    ],
+    "model.23.m.0.cv1.conv.weight": [
+      128,
+      128,
+      1,
+      1
+    ],
+    "model.23.m.0.cv2.conv.weight": [
+      128,
+      128,
+      3,
+      3
+    ],
+    "model.3.conv.weight": [
+      64,
+      32,
+      3,
+      3
+    ],
+    "model.4.cv1.conv.weight": [
+      32,
+      64,
+      1,
+      1
+    ],
+    "model.4.cv2.conv.weight": [
+      32,
+      64,
+      1,
+      1
+    ],
+    "model.4.cv3.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.4.m.0.cv1.conv.weight": [
+      32,
+      32,
+      1,
+      1
+    ],
+    "model.4.m.0.cv2.conv.weight": [
+      32,
+      32,
+      3,
+      3
+    ],
+    "model.4.m.1.cv1.conv.weight": [
+      32,
+      32,
+      1,
+      1
+    ],
+    "model.4.m.1.cv2.conv.weight": [
+      32,
+      32,
+      3,
+      3
+    ],
+    "model.5.conv.weight": [
+      128,
+      64,
+      3,
+      3
+    ],
+    "model.6.cv1.conv.weight": [
+      64,
+      128,
+      1,
+      1
+    ],
+    "model.6.cv2.conv.weight": [
+      64,
+      128,
+      1,
+      1
+    ],
+    "model.6.cv3.conv.weight": [
+      128,
+      128,
+      1,
+      1
+    ],
+    "model.6.m.0.cv1.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.6.m.0.cv2.conv.weight": [
+      64,
+      64,
+      3,
+      3
+    ],
+    "model.6.m.1.cv1.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.6.m.1.cv2.conv.weight": [
+      64,
+      64,
+      3,
+      3
+    ],
+    "model.6.m.2.cv1.conv.weight": [
+      64,
+      64,
+      1,
+      1
+    ],
+    "model.6.m.2.cv2.conv.weight": [
+      64,
+      64,
+      3,
+      3
+    ],
+    "model.7.conv.weight": [
+      256,
+      128,
+      3,
+      3
+    ],
+    "model.8.cv1.conv.weight": [
+      128,
+      256,
+      1,
+      1
+    ],
+    "model.8.cv2.conv.weight": [
+      128,
+      256,
+      1,
+      1
+    ],
+    "model.8.cv3.conv.weight": [
+      256,
+      256,
+      1,
+      1
+    ],
+    "model.8.m.0.cv1.conv.weight": [
+      128,
+      128,
+      1,
+      1
+    ],
+    "model.8.m.0.cv2.conv.weight": [
+      128,
+      128,
+      3,
+      3
+    ],
+    "model.9.cv1.conv.weight": [
+      128,
+      256,
+      1,
+      1
+    ],
+    "model.9.cv2.conv.weight": [
+      256,
+      512,
+      1,
+      1
+    ]
+  }
+}

@@ -506,6 +506,16 @@ python tools/compare_tensors.py testdata_n/python testdata_n/c
 - **Python**: 3.6 이상 (도구 사용 시)
 - **Python 패키지**: `torch`, `torchvision`, `opencv-python`, `numpy`
 
+### Fused 전용 (기본)
+
+- **기본 동작**: 가중치/메타는 **fused** 방식만 사용합니다.
+  - 기본 경로: `weights/yolov5n/weights_fused.bin`, `weights/yolov5n/model_meta_fused.json`
+  - Conv+BN+SiLU가 한 번에 적용되어 메모리 접근·연산이 적어 **임베디드에 유리**합니다.
+- **임베디드에서 경로 오버라이드**: `src/core/yolo_config.h`의 매크로를 컴파일 시 정의하면 됩니다.
+  - `YOLO_WEIGHTS_DEFAULT_DIR`, `YOLO_WEIGHTS_DEFAULT_FILE`, `YOLO_META_DEFAULT_FILE`
+  - 예: ROM에 `weights.bin`만 둘 경우  
+    `-DYOLO_WEIGHTS_DEFAULT_DIR="/rom" -DYOLO_WEIGHTS_DEFAULT_FILE="weights.bin" -DYOLO_META_DEFAULT_FILE="model_meta.json"`
+
 ### Linux/macOS
 
 ```bash

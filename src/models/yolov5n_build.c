@@ -1,9 +1,10 @@
 #include "yolov5n_build.h"
 #include "../core/common.h"
+#include "../core/weights_loader_int8.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
-// Note: JSON parsing not needed for basic build - model_meta.json can be loaded later if needed
 
 // Helper: make divisible by 8
 static int32_t make_divisible(int32_t x, int32_t divisor) {
@@ -21,19 +22,17 @@ static int32_t get_actual_repeats(int32_t base_repeats, float depth_multiple) {
     return result > 0 ? result : 1;
 }
 
-// Helper: Load Conv+BN layer weights
+// Helper: Load Conv+BN layer weights. int8_loader 있으면 int8 가중치 우선 사용 (float weight/minmax 없음).
 // Returns: -1 on error, 0 if not fused, 1 if fused
 int load_conv_bn_layer(conv2d_layer_t* conv, batchnorm2d_layer_t* bn,
                        weights_loader_t* loader, const char* prefix,
                        int32_t in_channels, int32_t out_channels,
-                       int32_t kernel_size, int32_t stride, int32_t padding) {
+                       int32_t kernel_size, int32_t stride, int32_t padding,
+                       weights_loader_int8_t* int8_loader) {
     if (!conv || !bn || !loader || !prefix) return -1;
-    
     char name[256];
     int32_t shape[4];
     int num_dims;
-    
-    // Initialize conv layer
     conv2d_params_t conv_params = {
         .out_channels = out_channels,
         .kernel_size = kernel_size,
@@ -43,20 +42,28 @@ int load_conv_bn_layer(conv2d_layer_t* conv, batchnorm2d_layer_t* bn,
         .dilation = 1
     };
     if (conv2d_init(conv, in_channels, &conv_params) != 0) return -1;
-    
-    // Load conv weights (fused weight if model was fused)
     snprintf(name, sizeof(name), "%s.conv.weight", prefix);
+    float* fused_bias = NULL;
+    snprintf(name, sizeof(name), "%s.conv.bias", prefix);
+    fused_bias = weights_loader_get(loader, name, shape, &num_dims);
+    snprintf(name, sizeof(name), "%s.conv.weight", prefix);
+    if (int8_loader) {
+        const int8_t* qptr = NULL;
+        float scale_w = 0.f;
+        size_t numel = 0;
+        if (weights_loader_int8_get(int8_loader, name, &qptr, &scale_w, &numel) == 0) {
+            if (conv2d_load_weights_int8(conv, qptr, numel, scale_w, fused_bias) == 0) {
+                goto load_bn;
+            }
+        }
+    }
     float* w = weights_loader_get(loader, name, shape, &num_dims);
     if (!w) {
         fprintf(stderr, "Error: Failed to load weight for %s\n", name);
         return -1;
     }
-    // Try to load fused bias (if Conv+BN was fused, conv will have bias)
-    float* fused_bias = NULL;
-    snprintf(name, sizeof(name), "%s.conv.bias", prefix);
-    fused_bias = weights_loader_get(loader, name, shape, &num_dims);
-    
     conv2d_load_weights(conv, w, fused_bias);
+load_bn:
     
     // Initialize BN layer
     batchnorm2d_params_t bn_params = {
@@ -131,13 +138,18 @@ yolov5n_model_t* yolov5n_build(const char* weights_path, const char* model_meta_
         return NULL;
     }
     printf("Weights loaded successfully (size: %zu bytes)\n", model->weights->size);
-    
-    // Initialize saved features
-    for (int i = 0; i < 12; i++) {
+    char weights_dir[512];
+    strncpy(weights_dir, weights_path, sizeof(weights_dir) - 1);
+    weights_dir[sizeof(weights_dir) - 1] = '\0';
+    char* last_slash = strrchr(weights_dir, '/');
+    if (!last_slash) last_slash = strrchr(weights_dir, '\\');
+    if (last_slash) *last_slash = '\0';
+    else weights_dir[0] = '\0';
+    model->weights_int8 = weights_loader_int8_create(weights_dir[0] ? weights_dir : ".");
+    if (model->weights_int8)
+        printf("INT8 weights loaded (weights_int8.bin + scales_int8.json)\n");
+    for (int i = 0; i < 12; i++)
         model->saved_features[i] = NULL;
-    }
-    
-    // Load weights
     if (yolov5n_load_weights(model) != 0) {
         yolov5n_free(model);
         return NULL;
@@ -186,11 +198,10 @@ void yolov5n_free(yolov5n_model_t* model) {
         }
     }
     
-    // Free weights loader
-    if (model->weights) {
+    if (model->weights)
         weights_loader_free(model->weights);
-    }
-    
+    if (model->weights_int8)
+        weights_loader_int8_free((weights_loader_int8_t*)model->weights_int8);
     free(model);
 }
 
@@ -216,7 +227,8 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->backbone_convs[0].out_channels,
                           model->backbone_convs[0].kernel_size,
                           model->backbone_convs[0].stride,
-                          model->backbone_convs[0].padding);
+                          model->backbone_convs[0].padding,
+                          model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -235,7 +247,8 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->backbone_convs[1].out_channels,
                           model->backbone_convs[1].kernel_size,
                           model->backbone_convs[1].stride,
-                          model->backbone_convs[1].padding);
+                          model->backbone_convs[1].padding,
+                          model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -250,7 +263,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->backbone_c3s[0].shortcut = 1;
     if (c3_init(&model->backbone_c3s[0].block, c3_0_c1, c3_0_c2, 1, 1) != 0) return -1;
     snprintf(name, sizeof(name), "model.2");
-    if (c3_load_weights(&model->backbone_c3s[0].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->backbone_c3s[0].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->backbone_c3s[0].block);
         return -1;
     }
@@ -268,7 +281,8 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->backbone_convs[2].out_channels,
                           model->backbone_convs[2].kernel_size,
                           model->backbone_convs[2].stride,
-                          model->backbone_convs[2].padding);
+                          model->backbone_convs[2].padding,
+                          model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -283,7 +297,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->backbone_c3s[1].shortcut = 1;
     if (c3_init(&model->backbone_c3s[1].block, c3_1_c1, c3_1_c2, 2, 1) != 0) return -1;
     snprintf(name, sizeof(name), "model.4");
-    if (c3_load_weights(&model->backbone_c3s[1].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->backbone_c3s[1].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->backbone_c3s[1].block);
         return -1;
     }
@@ -301,7 +315,8 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->backbone_convs[3].out_channels,
                           model->backbone_convs[3].kernel_size,
                           model->backbone_convs[3].stride,
-                          model->backbone_convs[3].padding);
+                          model->backbone_convs[3].padding,
+                          model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -316,7 +331,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->backbone_c3s[2].shortcut = 1;
     if (c3_init(&model->backbone_c3s[2].block, c3_2_c1, c3_2_c2, 3, 1) != 0) return -1;
     snprintf(name, sizeof(name), "model.6");
-    if (c3_load_weights(&model->backbone_c3s[2].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->backbone_c3s[2].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->backbone_c3s[2].block);
         return -1;
     }
@@ -334,7 +349,8 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->backbone_convs[4].out_channels,
                           model->backbone_convs[4].kernel_size,
                           model->backbone_convs[4].stride,
-                          model->backbone_convs[4].padding);
+                          model->backbone_convs[4].padding,
+                          model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -349,7 +365,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->backbone_c3s[3].shortcut = 1;
     if (c3_init(&model->backbone_c3s[3].block, c3_3_c1, c3_3_c2, 1, 1) != 0) return -1;
     snprintf(name, sizeof(name), "model.8");
-    if (c3_load_weights(&model->backbone_c3s[3].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->backbone_c3s[3].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->backbone_c3s[3].block);
         return -1;
     }
@@ -358,7 +374,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     int32_t sppf_c = get_actual_channels(1024, width_multiple);  // 256 for YOLOv5n
     if (sppf_init(&model->sppf, sppf_c, sppf_c, 5) != 0) return -1;
     snprintf(name, sizeof(name), "model.9");
-    if (sppf_load_weights(&model->sppf, model->weights, name) != 0) {
+    if (sppf_load_weights(&model->sppf, model->weights, name, model->weights_int8) != 0) {
         sppf_free(&model->sppf);
         return -1;
     }
@@ -375,7 +391,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->weights, name,
                           model->head_convs[0].in_channels,
                           model->head_convs[0].out_channels,
-                          1, 1, 0);
+                          1, 1, 0, model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -391,7 +407,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->head_c3s[0].shortcut = 0;
     if (c3_init(&model->head_c3s[0].block, head_c3_0_c1, head_c3_0_c2, 1, 0) != 0) return -1;
     snprintf(name, sizeof(name), "model.13");
-    if (c3_load_weights(&model->head_c3s[0].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->head_c3s[0].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->head_c3s[0].block);
         return -1;
     }
@@ -406,7 +422,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->weights, name,
                           model->head_convs[1].in_channels,
                           model->head_convs[1].out_channels,
-                          1, 1, 0);
+                          1, 1, 0, model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -422,7 +438,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->head_c3s[1].shortcut = 0;
     if (c3_init(&model->head_c3s[1].block, head_c3_1_c1, head_c3_1_c2, 1, 0) != 0) return -1;
     snprintf(name, sizeof(name), "model.17");
-    if (c3_load_weights(&model->head_c3s[1].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->head_c3s[1].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->head_c3s[1].block);
         return -1;
     }
@@ -437,7 +453,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->weights, name,
                           model->head_convs[2].in_channels,
                           model->head_convs[2].out_channels,
-                          3, 2, 1);
+                          3, 2, 1, model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -453,7 +469,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->head_c3s[2].shortcut = 0;
     if (c3_init(&model->head_c3s[2].block, head_c3_2_c1, head_c3_2_c2, 1, 0) != 0) return -1;
     snprintf(name, sizeof(name), "model.20");
-    if (c3_load_weights(&model->head_c3s[2].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->head_c3s[2].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->head_c3s[2].block);
         return -1;
     }
@@ -468,7 +484,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
                           model->weights, name,
                           model->head_convs[3].in_channels,
                           model->head_convs[3].out_channels,
-                          3, 2, 1);
+                          3, 2, 1, model->weights_int8);
     if (fused_status < 0) {
         return -1;
     }
@@ -484,7 +500,7 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
     model->head_c3s[3].shortcut = 0;
     if (c3_init(&model->head_c3s[3].block, head_c3_3_c1, head_c3_3_c2, 1, 0) != 0) return -1;
     snprintf(name, sizeof(name), "model.23");
-    if (c3_load_weights(&model->head_c3s[3].block, model->weights, name) != 0) {
+    if (c3_load_weights(&model->head_c3s[3].block, model->weights, name, model->weights_int8) != 0) {
         c3_free(&model->head_c3s[3].block);
         return -1;
     }
