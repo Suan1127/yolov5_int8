@@ -42,11 +42,11 @@ static float compute_correlation(const float* a, const float* b, size_t count) {
 }
 
 int main(int argc, char* argv[]) {
-    const char* weights_path = (argc >= 2) ? argv[1] : "../../weights/yolov5n/weights_fused.bin";
+    const char* weights_path = (argc >= 2) ? argv[1] : "../../weights/yolov5n/weights_int8.bin";
     const char* meta_path    = (argc >= 3) ? argv[2] : "../../weights/yolov5n/model_meta_fused.json";
     const char* input_bin    = (argc >= 4) ? argv[3] : "../../data/yolov5n/inputs/bus.bin";
 
-    printf("=== Detect head quantization validation (1x1 Conv float vs int8) ===\n");
+    printf("=== Detect head validation (1x1 Conv int8) ===\n");
     printf("Weights: %s\n", weights_path);
     printf("Meta:    %s\n", meta_path);
     printf("Input:   %s\n", input_bin);
@@ -110,14 +110,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        /* Float reference */
-        if (conv->weight && conv2d_forward(conv, feat, ref_float) != 0) {
-            fprintf(stderr, "Detect %s float forward failed\n", names[i]);
-            tensor_free(ref_float);
-            tensor_free(out_int8);
-            continue;
-        }
-
+        /* Int8 forward (float ref removed: int8-only build) */
         if (conv->q_weight && conv->scale_w > 0.f) {
             has_int8 = 1;
             if (conv2d_quant_forward(conv, feat, out_int8) != 0) {
@@ -126,12 +119,17 @@ int main(int argc, char* argv[]) {
                 tensor_free(out_int8);
                 continue;
             }
-            float mse = compute_mse(ref_float->data, out_int8->data, out_count);
-            float corr = compute_correlation(ref_float->data, out_int8->data, out_count);
-            printf("\n--- Detect head %s (1x1 Conv float vs int8) ---\n", names[i]);
-            printf("  MSE: %.6e  Correlation: %.6f\n", mse, corr);
+            /* Optional: float reference if weight loaded (not in int8-only build) */
+            if (conv->weight && conv2d_forward(conv, feat, ref_float) == 0) {
+                float mse = compute_mse(ref_float->data, out_int8->data, out_count);
+                float corr = compute_correlation(ref_float->data, out_int8->data, out_count);
+                printf("\n--- Detect head %s (float vs int8) ---\n", names[i]);
+                printf("  MSE: %.6e  Correlation: %.6f\n", mse, corr);
+            } else {
+                printf("\n--- Detect head %s: int8 forward OK ---\n", names[i]);
+            }
         } else {
-            printf("\n--- Detect head %s: no int8 weights (q_weight/scale_w missing), skip int8 comparison ---\n", names[i]);
+            printf("\n--- Detect head %s: no int8 weights (q_weight/scale_w missing) ---\n", names[i]);
         }
 
         tensor_free(ref_float);

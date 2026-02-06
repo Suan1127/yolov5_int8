@@ -44,11 +44,6 @@ int bottleneck_forward(bottleneck_t* block, const tensor_t* input, tensor_t* out
 int bottleneck_forward_float(bottleneck_t* block, const tensor_t* input, tensor_t* output, tensor_t* workspace);
 
 /**
- * Load weights from weights loader
- */
-int bottleneck_load_weights(bottleneck_t* block, void* weights_loader, const char* prefix);
-
-/**
  * Set debug output directory for intermediate tensor dumps
  */
 void bottleneck_set_debug_dir(const char* dir);

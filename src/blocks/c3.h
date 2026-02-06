@@ -62,7 +62,7 @@ int c3_forward_float(c3_block_t* block, const tensor_t* input, tensor_t* output,
 /**
  * Load weights. If int8_loader is non-NULL, loads int8 for all convs (for quant path).
  */
-int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix, void* int8_loader);
+int c3_load_weights(c3_block_t* block, const char* prefix, void* int8_loader);
 
 /**
  * Set debug output directory for intermediate tensor dumps

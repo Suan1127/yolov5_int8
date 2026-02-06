@@ -29,4 +29,15 @@ void weights_loader_int8_free(weights_loader_int8_t* loader);
 int weights_loader_int8_get(weights_loader_int8_t* loader, const char* name,
                             const int8_t** out_ptr, float* out_scale_w, size_t* out_numel);
 
+/**
+ * Get bias pointer for a weight key (e.g. "model.24.m.0.weight" → 해당 레이어 bias).
+ * bias.bin 이 있으면 order 순서로 concat된 float32에서 해당 구간 반환.
+ * 보드에 weights_fused 없이 int8 패키지만 올렸을 때 사용.
+ * @param out_ptr  output pointer to float bias (into loader buffer; do not free)
+ * @param out_numel  output number of elements (out_channels)
+ * @return 0 if found, -1 if not or bias.bin 없음
+ */
+int weights_loader_int8_get_bias(weights_loader_int8_t* loader, const char* weight_name,
+                                 const float** out_ptr, size_t* out_numel);
+
 #endif /* WEIGHTS_LOADER_INT8_H */

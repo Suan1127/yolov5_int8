@@ -2,7 +2,6 @@
 #define YOLOV5N_BUILD_H
 
 #include "../core/tensor.h"
-#include "../core/weights_loader.h"
 #include "../ops/conv2d.h"
 #include "../ops/batchnorm2d.h"
 #include "../blocks/c3.h"
@@ -72,9 +71,7 @@ typedef struct {
     // Indices: 0=layer0, 1=layer1, 2=layer2, 3=layer3, 4=layer4, 5=layer5, 6=layer6, 7=layer7, 8=layer9, 9=layer17, 10=layer20, 11=layer23
     tensor_t* saved_features[12];
     
-    // Weights loader (float: bias, BN 등)
-    weights_loader_t* weights;
-    // INT8 conv 가중치 (optional; 있으면 float weight / weight minmax 미사용)
+    // INT8 가중치 (weights_int8.bin + scales_int8.json + bias.bin)
     void* weights_int8;
 
     // Model parameters
@@ -103,12 +100,12 @@ void yolov5n_free(yolov5n_model_t* model);
 int yolov5n_load_weights(yolov5n_model_t* model);
 
 /**
- * Helper: Load Conv+BN layer weights
+ * Helper: Load Conv+BN layer from int8 package (weight + scale + bias.bin)
  */
 int load_conv_bn_layer(conv2d_layer_t* conv, batchnorm2d_layer_t* bn,
-                       weights_loader_t* loader, const char* prefix,
+                       const char* prefix,
                        int32_t in_channels, int32_t out_channels,
                        int32_t kernel_size, int32_t stride, int32_t padding,
-                       void* int8_loader);  /* optional: weights_loader_int8_t* */
+                       void* int8_loader);  /* weights_loader_int8_t* */
 
 #endif // YOLOV5N_BUILD_H

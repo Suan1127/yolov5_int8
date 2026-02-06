@@ -30,7 +30,6 @@ include_directories(
 set(CORE_SOURCES
     src/core/tensor.c
     src/core/memory.c
-    src/core/weights_loader.c
     src/core/weights_loader_int8.c
     third_party/jsmn/jsmn.c
 )

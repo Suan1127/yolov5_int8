@@ -68,7 +68,7 @@ static float compute_correlation(const float* a, const float* b, size_t count) {
 
 int main(int argc, char* argv[]) {
     /* 기본: 실행 위치 기준 ../../ (예: build/ 에서 실행 시). float + int8 모두 같은 weights 디렉에서 로드 */
-    const char* weights_path = (argc >= 2) ? argv[1] : "../../weights/yolov5n/weights_fused.bin";
+    const char* weights_path = (argc >= 2) ? argv[1] : "../../weights/yolov5n/weights_int8.bin";
     const char* meta_path   = (argc >= 3) ? argv[2] : "../../weights/yolov5n/model_meta_fused.json";
     const char* input_bin   = (argc >= 4) ? argv[3] : "../../data/yolov5n/inputs/bus.bin";
 
@@ -362,7 +362,7 @@ int main(int argc, char* argv[]) {
         yolov5n_free(model);
         return 1;
     }
-    if (c3_load_weights(&c3_float, model->weights, "model.2", NULL) != 0) {
+    if (c3_load_weights(&c3_float, "model.2", model->weights_int8) != 0) {
         c3_free(&c3_float);
         tensor_free(layer1_int8);
         tensor_free(layer1_ref);
@@ -590,7 +590,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float4;
     if (c3_init(&c3_float4, model->backbone_c3s[1].c1, model->backbone_c3s[1].c2,
                model->backbone_c3s[1].n, model->backbone_c3s[1].shortcut) != 0 ||
-        c3_load_weights(&c3_float4, model->weights, "model.4", NULL) != 0) {
+        c3_load_weights(&c3_float4, "model.4", model->weights_int8) != 0) {
         c3_free(&c3_float4);
         tensor_free(layer3_int8);
         tensor_free(layer3_ref);
@@ -812,7 +812,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float6;
     if (c3_init(&c3_float6, model->backbone_c3s[2].c1, model->backbone_c3s[2].c2,
                model->backbone_c3s[2].n, model->backbone_c3s[2].shortcut) != 0 ||
-        c3_load_weights(&c3_float6, model->weights, "model.6", NULL) != 0) {
+        c3_load_weights(&c3_float6, "model.6", model->weights_int8) != 0) {
         c3_free(&c3_float6);
         tensor_free(layer5_int8);
         tensor_free(layer5_ref);
@@ -1050,7 +1050,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float8;
     if (c3_init(&c3_float8, model->backbone_c3s[3].c1, model->backbone_c3s[3].c2,
                model->backbone_c3s[3].n, model->backbone_c3s[3].shortcut) != 0 ||
-        c3_load_weights(&c3_float8, model->weights, "model.8", NULL) != 0) {
+        c3_load_weights(&c3_float8, "model.8", model->weights_int8) != 0) {
         c3_free(&c3_float8);
         tensor_free(layer7_int8);
         tensor_free(layer7_ref);
@@ -1100,7 +1100,7 @@ int main(int argc, char* argv[]) {
     /* Layer9: SPPF (neck 시작). 입력 = layer8 (no SiLU after C3) */
     sppf_block_t sppf_float;
     if (sppf_init(&sppf_float, model->sppf.c1, model->sppf.c2, 5) != 0 ||
-        sppf_load_weights(&sppf_float, model->weights, "model.9", NULL) != 0) {
+        sppf_load_weights(&sppf_float, "model.9", model->weights_int8) != 0) {
         sppf_free(&sppf_float);
         tensor_free(layer8_int8);
         tensor_free(layer8_ref);
@@ -1504,7 +1504,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float13;
     if (c3_init(&c3_float13, model->head_c3s[0].c1, model->head_c3s[0].c2,
                 model->head_c3s[0].n, model->head_c3s[0].shortcut) != 0 ||
-        c3_load_weights(&c3_float13, model->weights, "model.13", NULL) != 0) {
+        c3_load_weights(&c3_float13, "model.13", model->weights_int8) != 0) {
         c3_free(&c3_float13);
         tensor_free(layer12_int8);
         tensor_free(layer12_ref);
@@ -2068,7 +2068,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float17;
     if (c3_init(&c3_float17, model->head_c3s[1].c1, model->head_c3s[1].c2,
                 model->head_c3s[1].n, model->head_c3s[1].shortcut) != 0 ||
-        c3_load_weights(&c3_float17, model->weights, "model.17", NULL) != 0) {
+        c3_load_weights(&c3_float17, "model.17", model->weights_int8) != 0) {
         c3_free(&c3_float17);
         tensor_free(layer16_int8);
         tensor_free(layer16_ref);
@@ -2587,7 +2587,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float20;
     if (c3_init(&c3_float20, model->head_c3s[2].c1, model->head_c3s[2].c2,
                 model->head_c3s[2].n, model->head_c3s[2].shortcut) != 0 ||
-        c3_load_weights(&c3_float20, model->weights, "model.20", NULL) != 0) {
+        c3_load_weights(&c3_float20, "model.20", model->weights_int8) != 0) {
         c3_free(&c3_float20);
         tensor_free(layer19_int8);
         tensor_free(layer19_ref);
@@ -3172,7 +3172,7 @@ int main(int argc, char* argv[]) {
     c3_block_t c3_float23;
     if (c3_init(&c3_float23, model->head_c3s[3].c1, model->head_c3s[3].c2,
                 model->head_c3s[3].n, model->head_c3s[3].shortcut) != 0 ||
-        c3_load_weights(&c3_float23, model->weights, "model.23", NULL) != 0) {
+        c3_load_weights(&c3_float23, "model.23", model->weights_int8) != 0) {
         c3_free(&c3_float23);
         tensor_free(layer22_int8);
         tensor_free(layer22_ref);

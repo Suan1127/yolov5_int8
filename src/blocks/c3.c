@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "../core/weights_loader.h"
 #include "../core/weights_loader_int8.h"
 #include "../ops/activation.h"
 #include "../ops/concat.h"
@@ -582,170 +581,44 @@ int c3_forward_float(c3_block_t* block, const tensor_t* input, tensor_t* output,
     return 0;
 }
 
-int c3_load_weights(c3_block_t* block, void* weights_loader, const char* prefix, void* int8_loader) {
-    if (!block || !weights_loader) return -1;
-    
-    weights_loader_t* loader = (weights_loader_t*)weights_loader;
-    weights_loader_int8_t* int8 = (weights_loader_int8_t*)int8_loader;
+static int c3_load_weights_int8_only(c3_block_t* block, weights_loader_int8_t* int8, const char* prefix) {
     char name[256];
-    int32_t shape[4];
-    int num_dims;
-    
-    // Load cv1
+    const float* bias_ptr;
+    size_t bias_count;
+    const int8_t* qptr;
+    float scale_w;
+    size_t numel;
+
+#define LOAD_CONV_BN_INT8(conv, bn, is_fused, key, out_c) do { \
+    snprintf(name, sizeof(name), "%s", key); \
+    if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) != 0 || \
+        weights_loader_int8_get_bias(int8, name, &bias_ptr, &bias_count) != 0 || \
+        !bias_ptr || bias_count != (size_t)(out_c)) return -1; \
+    if (conv2d_load_weights_int8(conv, qptr, numel, scale_w, bias_ptr) != 0) return -1; \
+    *(is_fused) = 1; \
+    for (int _i = 0; _i < (out_c); _i++) { \
+        (bn)->weight[_i] = 1.0f; (bn)->bias[_i] = 0.0f; \
+        (bn)->running_mean[_i] = 0.0f; (bn)->running_var[_i] = 1.0f; \
+    } \
+} while(0)
+
     snprintf(name, sizeof(name), "%s.cv1.conv.weight", prefix);
-    float* w = weights_loader_get(loader, name, shape, &num_dims);
-    if (!w) {
-        fprintf(stderr, "Error: Failed to load weight for %s\n", name);
-        return -1;
-    }
-    // Try to load fused bias
-    snprintf(name, sizeof(name), "%s.cv1.conv.bias", prefix);
-    float* fused_bias = weights_loader_get(loader, name, shape, &num_dims);
-    conv2d_load_weights(&block->cv1, w, fused_bias);
-    
-    // Load BN weights or set to identity if fused
-    if (fused_bias) {
-        // Fused: set BN to identity
-        block->cv1_is_fused = 1;
-        for (int i = 0; i < block->c_; i++) {
-            block->cv1_bn.weight[i] = 1.0f;
-            block->cv1_bn.bias[i] = 0.0f;
-            block->cv1_bn.running_mean[i] = 0.0f;
-            block->cv1_bn.running_var[i] = 1.0f;
-        }
-    } else {
-        // Not fused: load BN weights
-        block->cv1_is_fused = 0;
-        snprintf(name, sizeof(name), "%s.cv1.bn.weight", prefix);
-        float* bn_w = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv1.bn.bias", prefix);
-        float* bn_b = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv1.bn.running_mean", prefix);
-        float* bn_mean = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv1.bn.running_var", prefix);
-        float* bn_var = weights_loader_get(loader, name, shape, &num_dims);
-        if (bn_w && bn_b && bn_mean && bn_var) {
-            batchnorm2d_load_weights(&block->cv1_bn, bn_w, bn_b, bn_mean, bn_var);
-        }
-    }
-    if (int8) {
-        snprintf(name, sizeof(name), "%s.cv1.conv.weight", prefix);
-        const int8_t* qptr; float scale_w; size_t numel;
-        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
-            conv2d_load_weights_int8(&block->cv1, qptr, numel, scale_w, fused_bias);
-    }
-    
-    // Load cv2
+    LOAD_CONV_BN_INT8(&block->cv1, &block->cv1_bn, &block->cv1_is_fused, name, block->c_);
     snprintf(name, sizeof(name), "%s.cv2.conv.weight", prefix);
-    w = weights_loader_get(loader, name, shape, &num_dims);
-    if (!w) {
-        fprintf(stderr, "Error: Failed to load weight for %s\n", name);
-        return -1;
-    }
-    // Try to load fused bias
-    snprintf(name, sizeof(name), "%s.cv2.conv.bias", prefix);
-    fused_bias = weights_loader_get(loader, name, shape, &num_dims);
-    
-    conv2d_load_weights(&block->cv2, w, fused_bias);
-    
-    // Load BN weights or set to identity if fused
-    if (fused_bias) {
-        // Fused: set BN to identity
-        block->cv2_is_fused = 1;
-        for (int i = 0; i < block->c_; i++) {
-            block->cv2_bn.weight[i] = 1.0f;
-            block->cv2_bn.bias[i] = 0.0f;
-            block->cv2_bn.running_mean[i] = 0.0f;
-            block->cv2_bn.running_var[i] = 1.0f;
-        }
-    } else {
-        // Not fused: load BN weights
-        block->cv2_is_fused = 0;
-        snprintf(name, sizeof(name), "%s.cv2.bn.weight", prefix);
-        float* bn_w = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv2.bn.bias", prefix);
-        float* bn_b = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv2.bn.running_mean", prefix);
-        float* bn_mean = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv2.bn.running_var", prefix);
-        float* bn_var = weights_loader_get(loader, name, shape, &num_dims);
-        if (bn_w && bn_b && bn_mean && bn_var) {
-            batchnorm2d_load_weights(&block->cv2_bn, bn_w, bn_b, bn_mean, bn_var);
-        }
-    }
-    if (int8) {
-        snprintf(name, sizeof(name), "%s.cv2.conv.weight", prefix);
-        const int8_t* qptr; float scale_w; size_t numel;
-        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
-            conv2d_load_weights_int8(&block->cv2, qptr, numel, scale_w, fused_bias);
-    }
-    
-    // Load cv3
+    LOAD_CONV_BN_INT8(&block->cv2, &block->cv2_bn, &block->cv2_is_fused, name, block->c_);
     snprintf(name, sizeof(name), "%s.cv3.conv.weight", prefix);
-    w = weights_loader_get(loader, name, shape, &num_dims);
-    if (!w) {
-        fprintf(stderr, "Error: Failed to load weight for %s\n", name);
-        return -1;
-    }
-    
-    // Try to load fused bias
-    snprintf(name, sizeof(name), "%s.cv3.conv.bias", prefix);
-    fused_bias = weights_loader_get(loader, name, shape, &num_dims);
-    conv2d_load_weights(&block->cv3, w, fused_bias);
-    
-    // Load BN weights or set to identity if fused
-    if (fused_bias) {
-        // Fused: set BN to identity
-        block->cv3_is_fused = 1;
-        for (int i = 0; i < block->c2; i++) {
-            block->cv3_bn.weight[i] = 1.0f;
-            block->cv3_bn.bias[i] = 0.0f;
-            block->cv3_bn.running_mean[i] = 0.0f;
-            block->cv3_bn.running_var[i] = 1.0f;
-        }
-    } else {
-        // Not fused: load BN weights
-        block->cv3_is_fused = 0;
-        snprintf(name, sizeof(name), "%s.cv3.bn.weight", prefix);
-        float* bn_w = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv3.bn.bias", prefix);
-        float* bn_b = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv3.bn.running_mean", prefix);
-        float* bn_mean = weights_loader_get(loader, name, shape, &num_dims);
-        snprintf(name, sizeof(name), "%s.cv3.bn.running_var", prefix);
-        float* bn_var = weights_loader_get(loader, name, shape, &num_dims);
-        if (bn_w && bn_b && bn_mean && bn_var) {
-            batchnorm2d_load_weights(&block->cv3_bn, bn_w, bn_b, bn_mean, bn_var);
-        }
-    }
-    if (int8) {
-        snprintf(name, sizeof(name), "%s.cv3.conv.weight", prefix);
-        const int8_t* qptr; float scale_w; size_t numel;
-        if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0)
-            conv2d_load_weights_int8(&block->cv3, qptr, numel, scale_w, fused_bias);
-    }
-    
-    // Load bottlenecks
+    LOAD_CONV_BN_INT8(&block->cv3, &block->cv3_bn, &block->cv3_is_fused, name, block->c2);
     for (int i = 0; i < block->n; i++) {
-        snprintf(name, sizeof(name), "%s.m.%d", prefix, i);
-        bottleneck_load_weights(&block->bottlenecks[i], loader, name);
-        if (int8) {
-            float* fb;
-            snprintf(name, sizeof(name), "%s.m.%d.cv1.conv.weight", prefix, i);
-            const int8_t* qptr; float scale_w; size_t numel;
-            if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0) {
-                snprintf(name, sizeof(name), "%s.m.%d.cv1.conv.bias", prefix, i);
-                fb = weights_loader_get(loader, name, shape, &num_dims);
-                conv2d_load_weights_int8(&block->bottlenecks[i].conv1, qptr, numel, scale_w, fb);
-            }
-            snprintf(name, sizeof(name), "%s.m.%d.cv2.conv.weight", prefix, i);
-            if (weights_loader_int8_get(int8, name, &qptr, &scale_w, &numel) == 0) {
-                snprintf(name, sizeof(name), "%s.m.%d.cv2.conv.bias", prefix, i);
-                fb = weights_loader_get(loader, name, shape, &num_dims);
-                conv2d_load_weights_int8(&block->bottlenecks[i].conv2, qptr, numel, scale_w, fb);
-            }
-        }
+        snprintf(name, sizeof(name), "%s.m.%d.cv1.conv.weight", prefix, i);
+        LOAD_CONV_BN_INT8(&block->bottlenecks[i].conv1, &block->bottlenecks[i].bn1, &block->bottlenecks[i].conv1_is_fused, name, block->c_);
+        snprintf(name, sizeof(name), "%s.m.%d.cv2.conv.weight", prefix, i);
+        LOAD_CONV_BN_INT8(&block->bottlenecks[i].conv2, &block->bottlenecks[i].bn2, &block->bottlenecks[i].conv2_is_fused, name, block->c_);
     }
-    
+#undef LOAD_CONV_BN_INT8
     return 0;
+}
+
+int c3_load_weights(c3_block_t* block, const char* prefix, void* int8_loader) {
+    if (!block || !int8_loader) return -1;
+    return c3_load_weights_int8_only(block, (weights_loader_int8_t*)int8_loader, prefix);
 }

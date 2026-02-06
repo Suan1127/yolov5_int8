@@ -4,9 +4,9 @@ Export YOLOv5n Conv weights as INT8 + scale_w from the start.
 
 - *.conv.weight: symmetric int8 (scale_w = max(|min|,|max|)/127), saved to weights_int8.bin
 - model.24.m.0/1/2.weight (Detect head 1x1 conv): 동일 방식으로 포함 → C에서 int8 detect head 사용 가능
-- Bias/BN 등 나머지는 기존 float weights.bin 유지 (동일 경로에 두거나 별도)
-- 결과: weights_int8.bin, scales_int8.json (key 순서 + scale_w + shape)
-- C 쪽에서는 float weight 버퍼와 weight minmax 없이 q_weight, scale_w만 로드하면 됨.
+- bias: order와 동일 순서로 float32 concat → bias.bin (보드에 weights_fused 없이 int8 패키지만 올릴 때 사용)
+- 결과: weights_int8.bin, scales_int8.json, bias.bin (보드에는 이 세 파일만 있으면 됨)
+- C 쪽에서는 q_weight, scale_w, bias 모두 int8 패키지에서 로드 가능.
 
 포맷 맵은 inference에서 쓰는 것과 동일해야 함:
 - fused 사용 중이면: weights_map_fused.json
@@ -87,6 +87,7 @@ def export_int8_weights(model_pt_path: str, format_map_path: str, output_dir: st
     state = model.state_dict()
 
     int8_chunks = []
+    bias_chunks = []
     order = []
     scales = {}
     shapes = {}
@@ -105,6 +106,15 @@ def export_int8_weights(model_pt_path: str, format_map_path: str, output_dir: st
         scales[key] = scale_w
         shapes[key] = list(w.shape)
 
+        # bias: 동일 순서로 export (보드에서 weights_fused 없이 사용)
+        bias_key = key.replace(".weight", ".bias")
+        if bias_key in state:
+            b = state[bias_key].detach().cpu().numpy().astype(np.float32)
+            bias_chunks.append(b.tobytes())
+        else:
+            out_c = expected_shape[0]
+            bias_chunks.append(np.zeros(out_c, dtype=np.float32).tobytes())
+
     weights_int8 = b"".join(int8_chunks)
     int8_path = output_dir / "weights_int8.bin"
     with open(int8_path, "wb") as f:
@@ -116,6 +126,12 @@ def export_int8_weights(model_pt_path: str, format_map_path: str, output_dir: st
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
     print(f"Saved {meta_path}")
+
+    bias_bin = b"".join(bias_chunks)
+    bias_path = output_dir / "bias.bin"
+    with open(bias_path, "wb") as f:
+        f.write(bias_bin)
+    print(f"Saved {bias_path} ({len(bias_bin)} bytes, {len(order)} bias arrays)")
 
 
 def main():

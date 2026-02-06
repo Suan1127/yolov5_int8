@@ -59,7 +59,7 @@ int sppf_forward_float(sppf_block_t* block, const tensor_t* input, tensor_t* out
 /**
  * Load weights. If int8_loader is non-NULL, loads int8 for cv1 and cv2.
  */
-int sppf_load_weights(sppf_block_t* block, void* weights_loader, const char* prefix, void* int8_loader);
+int sppf_load_weights(sppf_block_t* block, const char* prefix, void* int8_loader);
 
 /**
  * Set debug directory for intermediate outputs (for debugging)

@@ -201,7 +201,7 @@ int main(int argc, char* argv[]) {
         snprintf(weights_paths[1], sizeof(weights_paths[1]), "../%s", weights_path_arg);
         snprintf(weights_paths[2], sizeof(weights_paths[2]), "../../%s", weights_path_arg);
     } else {
-        /* Default: fused weights (단일 Conv+BN+SiLU, 임베디드 메모리/연산 최소화) */
+        /* Default: int8 weights (weights_int8.bin + scales_int8.json + bias.bin) */
         snprintf(weights_paths[0], sizeof(weights_paths[0]), "%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_WEIGHTS_DEFAULT_FILE);
         snprintf(weights_paths[1], sizeof(weights_paths[1]), "../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_WEIGHTS_DEFAULT_FILE);
         snprintf(weights_paths[2], sizeof(weights_paths[2]), "../../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_WEIGHTS_DEFAULT_FILE);
@@ -216,9 +216,8 @@ int main(int argc, char* argv[]) {
             break;
         }
     }
-    
     if (!found_weights_path) {
-        fprintf(stderr, "Error: Cannot find weights file\n");
+        fprintf(stderr, "Error: Cannot find weights_int8.bin\n");
         fprintf(stderr, "Tried:\n");
         for (int i = 0; i < 3; i++) {
             fprintf(stderr, "  - %s\n", weights_paths[i]);
@@ -236,7 +235,7 @@ int main(int argc, char* argv[]) {
         snprintf(meta_paths[1], sizeof(meta_paths[1]), "../%s", model_meta_path_arg);
         snprintf(meta_paths[2], sizeof(meta_paths[2]), "../../%s", model_meta_path_arg);
     } else {
-        /* Default: fused 메타 (weights_fused.bin과 쌍) */
+        /* Default: model meta (input size 등) */
         snprintf(meta_paths[0], sizeof(meta_paths[0]), "%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_META_DEFAULT_FILE);
         snprintf(meta_paths[1], sizeof(meta_paths[1]), "../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_META_DEFAULT_FILE);
         snprintf(meta_paths[2], sizeof(meta_paths[2]), "../../%s/%s", YOLO_WEIGHTS_DEFAULT_DIR, YOLO_META_DEFAULT_FILE);
@@ -386,14 +385,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Detect head
-    printf("\nRunning Detect head...\n");
+    // Detect head + Decode + NMS (한 블록으로 출력)
     detect_params_t detect_params;
-    // Use actual input size for detection (use max dimension as reference)
-    // input_size is already declared above
     detect_init_params(&detect_params, 80, input_size);
-    printf("Using input size: %d for detection (from input %dx%d)\n", input_size, input_h, input_w);
-    
+
     detect_output_t detect_output;
     ret = detect_forward(model, p3_feature, p4_feature, p5_feature, &detect_output, &detect_params);
     if (ret != 0) {
@@ -405,32 +400,21 @@ int main(int argc, char* argv[]) {
         tensor_free(input);
         return 1;
     }
-    printf("Detect head completed\n");
-    
+
     // Save detect head outputs to testdata_n/c (for comparison with Python)
-    // Python saves as output_1_0.bin (P3), output_1_1.bin (P4), output_1_2.bin (P5)
-    // because output[1] is the list of 3 tensors [P3, P4, P5]
     if (output_dir && strlen(output_dir) > 0) {
         char filepath[512];
-        // Save P3 detect output as output_1_0.bin (to match Python)
         snprintf(filepath, sizeof(filepath), "%s/output_1_0.bin", output_dir);
         tensor_dump(detect_output.p3_output, filepath);
-        
-        // Save P4 detect output as output_1_1.bin (to match Python)
         snprintf(filepath, sizeof(filepath), "%s/output_1_1.bin", output_dir);
         tensor_dump(detect_output.p4_output, filepath);
-        
-        // Save P5 detect output as output_1_2.bin (to match Python)
         snprintf(filepath, sizeof(filepath), "%s/output_1_2.bin", output_dir);
         tensor_dump(detect_output.p5_output, filepath);
     }
-    
-    // Decode detections
-    printf("\nDecoding detections...\n");
+
     detection_t* detections = NULL;
     int32_t num_detections = 0;
     float conf_threshold = 0.25f;
-    
     ret = detect_decode(&detect_output, &detect_params, &detections, &num_detections, conf_threshold);
     if (ret != 0) {
         fprintf(stderr, "Error: Decode failed\n");
@@ -442,10 +426,7 @@ int main(int argc, char* argv[]) {
         tensor_free(input);
         return 1;
     }
-    printf("Found %d detections (confidence > %.2f)\n", num_detections, conf_threshold);
-    
-    // Sort all detections by confidence (descending) before limiting
-    // This matches Python: x = x[x[:, 4].argsort(descending=True)[:max_nms]]
+
     for (int i = 0; i < num_detections - 1; i++) {
         for (int j = i + 1; j < num_detections; j++) {
             if (detections[i].conf < detections[j].conf) {
@@ -455,25 +436,18 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    
-    // Limit to top 30000 detections before NMS (matching Python max_nms=30000)
+    int32_t num_candidates = num_detections;
     int32_t max_nms = 30000;
-    if (num_detections > max_nms) {
-        num_detections = max_nms;
-        printf("Limited to top %d detections before NMS (matching Python max_nms)\n", max_nms);
-    }
-    
-    // NMS
-    printf("\nRunning NMS...\n");
+    if (num_detections > max_nms) num_detections = max_nms;
+
     detection_t* nms_detections = NULL;
     int32_t nms_count = 0;
     float iou_threshold = 0.45f;
-    int32_t max_detections = 300;  // Match Python default max_det=300
-    
+    int32_t max_detections = 300;
     ret = nms(detections, num_detections, &nms_detections, &nms_count, iou_threshold, max_detections);
     if (ret != 0) {
         fprintf(stderr, "Error: NMS failed\n");
-        detect_free_detections(detections, num_detections);
+        detect_free_detections(detections, num_candidates);
         detect_free_output(&detect_output);
         tensor_free(outputs[0]);
         tensor_free(outputs[1]);
@@ -482,8 +456,10 @@ int main(int argc, char* argv[]) {
         tensor_free(input);
         return 1;
     }
-    printf("After NMS: %d detections\n", nms_count);
-    
+
+    printf("\n--- Detect head (input %dx%d) ---\n", input_h, input_w);
+    printf("  Decode: %d candidates (conf>%.2f) -> NMS: %d detections\n", num_candidates, conf_threshold, nms_count);
+
     // Print results (one compact block per detection)
     printf("\n=== Detection Results ===\n");
     printf("Total: %d\n\n", nms_count);
@@ -538,7 +514,7 @@ int main(int argc, char* argv[]) {
     
     // Cleanup
     detect_free_detections(nms_detections, nms_count);
-    detect_free_detections(detections, num_detections);
+    detect_free_detections(detections, num_candidates);
     detect_free_output(&detect_output);
     tensor_free(outputs[0]);
     tensor_free(outputs[1]);
