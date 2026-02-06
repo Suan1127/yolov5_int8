@@ -90,6 +90,13 @@ if(NOT MSVC)
     target_link_libraries(layer0_validate m)
 endif()
 
+# Detect head quantization validation (float vs int8 for 1x1 Conv)
+add_executable(detect_head_validate src/validation/detect_head_validate.c)
+target_link_libraries(detect_head_validate yolov5_c)
+if(NOT MSVC)
+    target_link_libraries(detect_head_validate m)
+endif()
+
 # Tests
 if(BUILD_TESTS)
     enable_testing()

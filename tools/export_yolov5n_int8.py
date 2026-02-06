@@ -3,6 +3,7 @@
 Export YOLOv5n Conv weights as INT8 + scale_w from the start.
 
 - *.conv.weight: symmetric int8 (scale_w = max(|min|,|max|)/127), saved to weights_int8.bin
+- model.24.m.0/1/2.weight (Detect head 1x1 conv): 동일 방식으로 포함 → C에서 int8 detect head 사용 가능
 - Bias/BN 등 나머지는 기존 float weights.bin 유지 (동일 경로에 두거나 별도)
 - 결과: weights_int8.bin, scales_int8.json (key 순서 + scale_w + shape)
 - C 쪽에서는 float weight 버퍼와 weight minmax 없이 q_weight, scale_w만 로드하면 됨.
@@ -50,13 +51,19 @@ def quantize_float_to_int8(arr: np.ndarray, scale: float) -> np.ndarray:
     return q.astype(np.int8)
 
 
+# Detect head 1x1 conv weights (이름에 .conv 없음; C 쪽 model.24.m.0/1/2.weight 로 로드)
+DETECT_HEAD_WEIGHT_KEYS = ("model.24.m.0.weight", "model.24.m.1.weight", "model.24.m.2.weight")
+
+
 def load_format_map(format_map_path: str) -> list:
-    """Return list of (key, shape) in map order (only *.conv.weight)."""
+    """Return list of (key, shape) in map order: *.conv.weight + detect head model.24.m.*.weight."""
     with open(format_map_path, "r", encoding="utf-8") as f:
         data = json.load(f)
     out = []
     for k, v in data.items():
-        if not k.endswith(".conv.weight"):
+        is_conv_weight = k.endswith(".conv.weight")
+        is_detect_head = k in DETECT_HEAD_WEIGHT_KEYS
+        if not (is_conv_weight or is_detect_head):
             continue
         shape = tuple(v["shape"])
         out.append((k, shape))

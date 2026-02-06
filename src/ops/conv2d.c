@@ -93,6 +93,20 @@ int conv2d_load_weights_int8(conv2d_layer_t* layer, const int8_t* q_weight_buf, 
     return 0;
 }
 
+/* 검증용: float weight/bias는 그대로 두고 q_weight/scale_w만 설정. float vs int8 비교 시 사용. */
+int conv2d_attach_int8_weights(conv2d_layer_t* layer, const int8_t* q_weight_buf, size_t q_weight_numel, float scale_w) {
+    if (!layer || !q_weight_buf || scale_w <= 0.f) return -1;
+    size_t need = (size_t)(layer->params.out_channels * layer->in_channels *
+                           layer->params.kernel_size * layer->params.kernel_size);
+    if (q_weight_numel != need) return -1;
+    if (layer->q_weight) free(layer->q_weight);
+    layer->scale_w = scale_w;
+    layer->q_weight = (int8_t*)malloc(need * sizeof(int8_t));
+    if (!layer->q_weight) return -1;
+    memcpy(layer->q_weight, q_weight_buf, need * sizeof(int8_t));
+    return 0;
+}
+
 // Helper: Get output dimensions
 static void conv2d_output_size(int32_t in_h, int32_t in_w, const conv2d_params_t* params,
                                int32_t* out_h, int32_t* out_w) {
@@ -263,6 +277,51 @@ int conv2d_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t*
             }
         }
     }
+    return 0;
+}
+
+/* Detect head 등 BN 없는 Conv 전용: input(float) → quantize → int8 Conv → dequant → float. (하드웨어에 int8 weight만 올리기 위함) */
+int conv2d_quant_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t* output) {
+    if (!layer || !input || !output || !layer->q_weight || layer->scale_w <= 0.f) return -1;
+    int32_t out_h, out_w;
+    conv2d_output_size(input->h, input->w, &layer->params, &out_h, &out_w);
+    if (output->n != input->n || output->c != layer->params.out_channels ||
+        output->h != out_h || output->w != out_w || input->c != layer->in_channels ||
+        input->data == output->data)
+        return -1;
+    int32_t k = layer->params.kernel_size;
+    int32_t s = layer->params.stride;
+    int32_t p = layer->params.padding;
+    int32_t d = layer->params.dilation;
+    int32_t out_c = layer->params.out_channels;
+    int32_t in_c = layer->in_channels;
+    size_t in_count = (size_t)input->n * (size_t)in_c * (size_t)input->h * (size_t)input->w;
+    size_t out_count = (size_t)output->n * (size_t)out_c * (size_t)out_h * (size_t)out_w;
+
+    float in_min, in_max;
+    tensor_minmax(input->data, in_count, &in_min, &in_max);
+    quant_scale_t scale_in_q;
+    quant_scale_symmetric_from_minmax(in_min, in_max, &scale_in_q);
+    float scale_in = scale_in_q.scale;
+
+    int8_t* q_input = (int8_t*)malloc(in_count * sizeof(int8_t));
+    int32_t* acc32 = (int32_t*)malloc(out_count * sizeof(int32_t));
+    if (!q_input || !acc32) {
+        if (q_input) free(q_input);
+        if (acc32) free(acc32);
+        return -1;
+    }
+    quantize_float_to_int8(input->data, in_count, scale_in, q_input);
+    if (conv2d_int8_forward(q_input, layer->q_weight, input->n, in_c, input->h, input->w,
+                            out_c, k, s, p, d, acc32) != 0) {
+        free(q_input);
+        free(acc32);
+        return -1;
+    }
+    free(q_input);
+    dequant_acc32_to_float(acc32, out_count, out_c, out_h, out_w,
+                           scale_in, layer->scale_w, layer->bias, output->data);
+    free(acc32);
     return 0;
 }
 

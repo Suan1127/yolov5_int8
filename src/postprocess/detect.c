@@ -60,7 +60,13 @@ int detect_forward(void* model_ptr, const tensor_t* p3_feature, const tensor_t* 
     output->p3_output = tensor_create(1, num_outputs, p3_h, p3_w);
     if (!output->p3_output) return -1;
     
-    if (conv2d_forward(&model->detect_convs[0].conv, p3_feature, output->p3_output) != 0) {
+    if (model->detect_convs[0].conv.q_weight && model->detect_convs[0].conv.scale_w > 0.f) {
+        if (conv2d_quant_forward(&model->detect_convs[0].conv, p3_feature, output->p3_output) != 0) {
+            fprintf(stderr, "Error: Detect head P3 conv (int8) forward failed\n");
+            tensor_free(output->p3_output);
+            return -1;
+        }
+    } else if (conv2d_forward(&model->detect_convs[0].conv, p3_feature, output->p3_output) != 0) {
         fprintf(stderr, "Error: Detect head P3 conv forward failed\n");
         tensor_free(output->p3_output);
         return -1;
@@ -73,7 +79,14 @@ int detect_forward(void* model_ptr, const tensor_t* p3_feature, const tensor_t* 
         return -1;
     }
     
-    if (conv2d_forward(&model->detect_convs[1].conv, p4_feature, output->p4_output) != 0) {
+    if (model->detect_convs[1].conv.q_weight && model->detect_convs[1].conv.scale_w > 0.f) {
+        if (conv2d_quant_forward(&model->detect_convs[1].conv, p4_feature, output->p4_output) != 0) {
+            fprintf(stderr, "Error: Detect head P4 conv (int8) forward failed\n");
+            tensor_free(output->p3_output);
+            tensor_free(output->p4_output);
+            return -1;
+        }
+    } else if (conv2d_forward(&model->detect_convs[1].conv, p4_feature, output->p4_output) != 0) {
         fprintf(stderr, "Error: Detect head P4 conv forward failed\n");
         tensor_free(output->p3_output);
         tensor_free(output->p4_output);
@@ -88,7 +101,15 @@ int detect_forward(void* model_ptr, const tensor_t* p3_feature, const tensor_t* 
         return -1;
     }
     
-    if (conv2d_forward(&model->detect_convs[2].conv, p5_feature, output->p5_output) != 0) {
+    if (model->detect_convs[2].conv.q_weight && model->detect_convs[2].conv.scale_w > 0.f) {
+        if (conv2d_quant_forward(&model->detect_convs[2].conv, p5_feature, output->p5_output) != 0) {
+            fprintf(stderr, "Error: Detect head P5 conv (int8) forward failed\n");
+            tensor_free(output->p3_output);
+            tensor_free(output->p4_output);
+            tensor_free(output->p5_output);
+            return -1;
+        }
+    } else if (conv2d_forward(&model->detect_convs[2].conv, p5_feature, output->p5_output) != 0) {
         fprintf(stderr, "Error: Detect head P5 conv forward failed\n");
         tensor_free(output->p3_output);
         tensor_free(output->p4_output);

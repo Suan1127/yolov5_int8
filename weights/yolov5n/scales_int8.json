@@ -31,6 +31,9 @@
     "model.23.cv3.conv.weight",
     "model.23.m.0.cv1.conv.weight",
     "model.23.m.0.cv2.conv.weight",
+    "model.24.m.0.weight",
+    "model.24.m.1.weight",
+    "model.24.m.2.weight",
     "model.3.conv.weight",
     "model.4.cv1.conv.weight",
     "model.4.cv2.conv.weight",
@@ -90,6 +93,9 @@
     "model.23.cv3.conv.weight": 0.0171605545704759,
     "model.23.m.0.cv1.conv.weight": 0.009777803120650644,
     "model.23.m.0.cv2.conv.weight": 0.009453730320367287,
+    "model.24.m.0.weight": 0.0048558993602362205,
+    "model.24.m.1.weight": 0.004621370570866141,
+    "model.24.m.2.weight": 0.004356083907480315,
     "model.3.conv.weight": 0.004163102840814065,
     "model.4.cv1.conv.weight": 0.004351269541762945,
     "model.4.cv2.conv.weight": 0.015231273305697703,
@@ -303,6 +309,24 @@
       128,
       3,
       3
+    ],
+    "model.24.m.0.weight": [
+      255,
+      64,
+      1,
+      1
+    ],
+    "model.24.m.1.weight": [
+      255,
+      128,
+      1,
+      1
+    ],
+    "model.24.m.2.weight": [
+      255,
+      256,
+      1,
+      1
     ],
     "model.3.conv.weight": [
       64,

@@ -537,24 +537,32 @@ int yolov5n_load_weights(yolov5n_model_t* model) {
             return -1;
         }
         
-        // Load weights: model.24.m.0, model.24.m.1, model.24.m.2
+        // Load weights: model.24.m.0, model.24.m.1, model.24.m.2 (float or int8)
         snprintf(name, sizeof(name), "model.24.m.%d.weight", i);
         int32_t shape[4];
         int num_dims;
         float* w = weights_loader_get(model->weights, name, shape, &num_dims);
         if (!w) {
             fprintf(stderr, "Error: Failed to load detect head weight for %s\n", name);
-            // Free already initialized detect convs
             for (int j = 0; j <= i; j++) {
                 conv2d_free(&model->detect_convs[j].conv);
             }
             return -1;
         }
-        
-        // Detect head conv has bias (no BN)
         snprintf(name, sizeof(name), "model.24.m.%d.bias", i);
         float* bias = weights_loader_get(model->weights, name, shape, &num_dims);
         conv2d_load_weights(&model->detect_convs[i].conv, w, bias);
+
+        // INT8 path: 동일 디렉터리에 weights_int8.bin + scales_int8.json 있으면 q_weight 부착 (추론 시 int8 사용, 검증 시 float 레퍼런스 유지)
+        weights_loader_int8_t* int8_loader = (weights_loader_int8_t*)model->weights_int8;
+        if (int8_loader) {
+            snprintf(name, sizeof(name), "model.24.m.%d.weight", i);
+            const int8_t* qptr = NULL;
+            float scale_w = 0.f;
+            size_t numel = 0;
+            if (weights_loader_int8_get(int8_loader, name, &qptr, &scale_w, &numel) == 0)
+                conv2d_attach_int8_weights(&model->detect_convs[i].conv, qptr, numel, scale_w);
+        }
     }
     
     printf("YOLOv5n model loaded successfully\n");

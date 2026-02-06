@@ -44,6 +44,12 @@ void conv2d_free(conv2d_layer_t* layer);
 int conv2d_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t* output);
 
 /**
+ * INT8 Conv only (no BN, no SiLU): input(float) → quantize → int8 Conv → dequant → float.
+ * Detect head 1x1 conv 등 BN 없는 레이어용. 하드웨어에 int8 weight만 올릴 때 사용.
+ */
+int conv2d_quant_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t* output);
+
+/**
  * 단일 경로: input(float32) → quantize → int8 Conv+BN → dequant → float32 → SiLU.
  * Conv+BN은 가속기에서 int8로 수행; SiLU는 float로 적용.
  * bn NULL이면 bias에 BN이 이미 fold된 상태(fused).
@@ -65,5 +71,10 @@ int conv2d_load_weights(conv2d_layer_t* layer, const float* weight_buf, const fl
  */
 int conv2d_load_weights_int8(conv2d_layer_t* layer, const int8_t* q_weight_buf, size_t q_weight_numel,
                               float scale_w, const float* bias_buf);
+
+/**
+ * 검증용: float weight/bias 유지한 채 q_weight/scale_w만 부착. float vs int8 비교 시 사용.
+ */
+int conv2d_attach_int8_weights(conv2d_layer_t* layer, const int8_t* q_weight_buf, size_t q_weight_numel, float scale_w);
 
 #endif // CONV2D_H
