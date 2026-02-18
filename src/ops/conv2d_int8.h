@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 /**
- * INT8 2D convolution with int32 accumulation (for quantization validation).
+ * INT8 2D convolution with int32 accumulation (inference / validation).
  * Layout: input int8 NCHW, weight int8 [out_c, in_c, k, k], output acc32 NCHW.
  * No bias in integer path; bias is applied in float after dequant.
  */

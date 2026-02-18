@@ -39,11 +39,6 @@ int conv2d_init(conv2d_layer_t* layer, int32_t in_channels, const conv2d_params_
 void conv2d_free(conv2d_layer_t* layer);
 
 /**
- * Forward pass: output = conv2d(input) — float only, 검증/레퍼런스용.
- */
-int conv2d_forward(const conv2d_layer_t* layer, const tensor_t* input, tensor_t* output);
-
-/**
  * INT8 Conv only (no BN, no SiLU): input(float) → quantize → int8 Conv → dequant → float.
  * Detect head 1x1 conv 등 BN 없는 레이어용. 하드웨어에 int8 weight만 올릴 때 사용.
  */
@@ -59,11 +54,6 @@ struct batchnorm2d_layer_t;
 #endif
 int conv2d_quant_bn_silu_forward(const conv2d_layer_t* layer, const struct batchnorm2d_layer_t* bn,
                                  int bn_fused, const tensor_t* input, tensor_t* output);
-
-/**
- * Load weights from float buffer (기존; int8 export 사용 시 load_weights_int8 사용)
- */
-int conv2d_load_weights(conv2d_layer_t* layer, const float* weight_buf, const float* bias_buf);
 
 /**
  * Load weights from int8 buffer (export 시 int8로 저장한 경우).

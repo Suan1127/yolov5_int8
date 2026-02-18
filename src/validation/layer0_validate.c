@@ -13,8 +13,8 @@
  * 인자: [weights.bin] [model_meta.json] [input.bin]
  */
 
-#include "conv2d_int8.h"
-#include "quant_util.h"
+#include "../ops/conv2d_int8.h"
+#include "../ops/quant_util.h"
 #include "../core/tensor.h"
 #include "../ops/conv2d.h"
 #include "../ops/batchnorm2d.h"
@@ -133,14 +133,14 @@ int main(int argc, char* argv[]) {
     if (bn) {
         tensor_t* conv_out = tensor_create(1, out_c, out_h, out_w);
         if (!conv_out) { tensor_free(ref_float); tensor_free(input); yolov5n_free(model); return 1; }
-        if (conv2d_forward(conv, input, conv_out) != 0 ||
+        if (conv2d_quant_forward(conv, input, conv_out) != 0 ||
             batchnorm2d_forward(bn, conv_out, ref_float) != 0) {
             tensor_free(conv_out); tensor_free(ref_float); tensor_free(input); yolov5n_free(model);
             return 1;
         }
         tensor_free(conv_out);
     } else {
-        if (conv2d_forward(conv, input, ref_float) != 0) {
+        if (conv2d_quant_forward(conv, input, ref_float) != 0) {
             tensor_free(ref_float); tensor_free(input); yolov5n_free(model);
             return 1;
         }
@@ -253,7 +253,7 @@ int main(int argc, char* argv[]) {
             yolov5n_free(model);
             return 1;
         }
-        if (conv2d_forward(conv1, ref_float, conv1_out) != 0 ||
+        if (conv2d_quant_forward(conv1, ref_float, conv1_out) != 0 ||
             batchnorm2d_forward(bn1, conv1_out, layer1_ref) != 0) {
             tensor_free(conv1_out);
             tensor_free(layer1_ref);
@@ -267,7 +267,7 @@ int main(int argc, char* argv[]) {
         }
         tensor_free(conv1_out);
     } else {
-        if (conv2d_forward(conv1, ref_float, layer1_ref) != 0) {
+        if (conv2d_quant_forward(conv1, ref_float, layer1_ref) != 0) {
             tensor_free(layer1_ref);
             free(acc32);
             free(q_input);
@@ -481,7 +481,7 @@ int main(int argc, char* argv[]) {
     if (bn3) {
         tensor_t* conv3_out = tensor_create(1, out_c3, out_h3, out_w3);
         if (!conv3_out ||
-            conv2d_forward(conv3, layer2_ref, conv3_out) != 0 ||
+            conv2d_quant_forward(conv3, layer2_ref, conv3_out) != 0 ||
             batchnorm2d_forward(bn3, conv3_out, layer3_ref) != 0) {
             if (conv3_out) tensor_free(conv3_out);
             tensor_free(layer3_int8);
@@ -500,7 +500,7 @@ int main(int argc, char* argv[]) {
         }
         tensor_free(conv3_out);
     } else {
-        if (conv2d_forward(conv3, layer2_ref, layer3_ref) != 0) {
+        if (conv2d_quant_forward(conv3, layer2_ref, layer3_ref) != 0) {
             tensor_free(layer3_int8);
             tensor_free(layer3_ref);
             tensor_free(layer2_int8);
@@ -679,7 +679,7 @@ int main(int argc, char* argv[]) {
     }
     if (bn5) {
         tensor_t* t5 = tensor_create(1, out_c5, out_h5, out_w5);
-        if (!t5 || conv2d_forward(conv5, layer4_ref, t5) != 0 || batchnorm2d_forward(bn5, t5, layer5_ref) != 0) {
+        if (!t5 || conv2d_quant_forward(conv5, layer4_ref, t5) != 0 || batchnorm2d_forward(bn5, t5, layer5_ref) != 0) {
             if (t5) tensor_free(t5);
             tensor_free(layer5_int8);
             tensor_free(layer5_ref);
@@ -698,7 +698,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         tensor_free(t5);
-    } else if (conv2d_forward(conv5, layer4_ref, layer5_ref) != 0) {
+    } else if (conv2d_quant_forward(conv5, layer4_ref, layer5_ref) != 0) {
         tensor_free(layer5_int8);
         tensor_free(layer5_ref);
         tensor_free(layer4_int8);
@@ -909,7 +909,7 @@ int main(int argc, char* argv[]) {
     }
     if (bn7) {
         tensor_t* t7 = tensor_create(1, out_c7, out_h7, out_w7);
-        if (!t7 || conv2d_forward(conv7, layer6_ref, t7) != 0 || batchnorm2d_forward(bn7, t7, layer7_ref) != 0) {
+        if (!t7 || conv2d_quant_forward(conv7, layer6_ref, t7) != 0 || batchnorm2d_forward(bn7, t7, layer7_ref) != 0) {
             if (t7) tensor_free(t7);
             tensor_free(layer7_int8);
             tensor_free(layer7_ref);
@@ -928,7 +928,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         tensor_free(t7);
-    } else if (conv2d_forward(conv7, layer6_ref, layer7_ref) != 0) {
+    } else if (conv2d_quant_forward(conv7, layer6_ref, layer7_ref) != 0) {
         tensor_free(layer7_int8);
         tensor_free(layer7_ref);
         tensor_free(layer6_int8);
@@ -1211,7 +1211,7 @@ int main(int argc, char* argv[]) {
     }
     if (bn10) {
         tensor_t* t10 = tensor_create(1, out_c10, out_h8, out_w8);
-        if (!t10 || conv2d_forward(conv10, layer9_ref, t10) != 0 || batchnorm2d_forward(bn10, t10, layer10_ref) != 0) {
+        if (!t10 || conv2d_quant_forward(conv10, layer9_ref, t10) != 0 || batchnorm2d_forward(bn10, t10, layer10_ref) != 0) {
             if (t10) tensor_free(t10);
             tensor_free(layer10_int8);
             tensor_free(layer10_ref);
@@ -1236,7 +1236,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         tensor_free(t10);
-    } else if (conv2d_forward(conv10, layer9_ref, layer10_ref) != 0) {
+    } else if (conv2d_quant_forward(conv10, layer9_ref, layer10_ref) != 0) {
         tensor_free(layer10_int8);
         tensor_free(layer10_ref);
         tensor_free(layer9_int8);
@@ -1685,7 +1685,7 @@ int main(int argc, char* argv[]) {
     }
     if (bn14) {
         tensor_t* t14 = tensor_create(1, out_c14, out_h14, out_w14);
-        if (!t14 || conv2d_forward(conv14, layer13_ref, t14) != 0 || batchnorm2d_forward(bn14, t14, layer14_ref) != 0) {
+        if (!t14 || conv2d_quant_forward(conv14, layer13_ref, t14) != 0 || batchnorm2d_forward(bn14, t14, layer14_ref) != 0) {
             if (t14) tensor_free(t14);
             tensor_free(layer14_int8);
             tensor_free(layer14_ref);
@@ -1720,7 +1720,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         tensor_free(t14);
-    } else if (conv2d_forward(conv14, layer13_ref, layer14_ref) != 0) {
+    } else if (conv2d_quant_forward(conv14, layer13_ref, layer14_ref) != 0) {
         tensor_free(layer14_int8);
         tensor_free(layer14_ref);
         tensor_free(layer13_int8);
@@ -2290,7 +2290,7 @@ int main(int argc, char* argv[]) {
     }
     if (bn18) {
         tensor_t* t18 = tensor_create(1, out_c18, out_h18, out_w18);
-        if (!t18 || conv2d_forward(conv18, layer17_ref, t18) != 0 || batchnorm2d_forward(bn18, t18, layer18_ref) != 0) {
+        if (!t18 || conv2d_quant_forward(conv18, layer17_ref, t18) != 0 || batchnorm2d_forward(bn18, t18, layer18_ref) != 0) {
             if (t18) tensor_free(t18);
             tensor_free(layer18_int8);
             tensor_free(layer18_ref);
@@ -2333,7 +2333,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         tensor_free(t18);
-    } else if (conv2d_forward(conv18, layer17_ref, layer18_ref) != 0) {
+    } else if (conv2d_quant_forward(conv18, layer17_ref, layer18_ref) != 0) {
         tensor_free(layer18_int8);
         tensor_free(layer18_ref);
         tensor_free(layer17_int8);
@@ -2839,7 +2839,7 @@ int main(int argc, char* argv[]) {
     }
     if (bn21) {
         tensor_t* t21 = tensor_create(1, out_c21, out_h21, out_w21);
-        if (!t21 || conv2d_forward(conv21, layer20_ref, t21) != 0 || batchnorm2d_forward(bn21, t21, layer21_ref) != 0) {
+        if (!t21 || conv2d_quant_forward(conv21, layer20_ref, t21) != 0 || batchnorm2d_forward(bn21, t21, layer21_ref) != 0) {
             if (t21) tensor_free(t21);
             tensor_free(layer21_int8);
             tensor_free(layer21_ref);
@@ -2888,7 +2888,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         tensor_free(t21);
-    } else if (conv2d_forward(conv21, layer20_ref, layer21_ref) != 0) {
+    } else if (conv2d_quant_forward(conv21, layer20_ref, layer21_ref) != 0) {
         tensor_free(layer21_int8);
         tensor_free(layer21_ref);
         tensor_free(layer20_int8);

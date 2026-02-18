@@ -110,7 +110,6 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        /* Int8 forward (float ref removed: int8-only build) */
         if (conv->q_weight && conv->scale_w > 0.f) {
             has_int8 = 1;
             if (conv2d_quant_forward(conv, feat, out_int8) != 0) {
@@ -119,15 +118,7 @@ int main(int argc, char* argv[]) {
                 tensor_free(out_int8);
                 continue;
             }
-            /* Optional: float reference if weight loaded (not in int8-only build) */
-            if (conv->weight && conv2d_forward(conv, feat, ref_float) == 0) {
-                float mse = compute_mse(ref_float->data, out_int8->data, out_count);
-                float corr = compute_correlation(ref_float->data, out_int8->data, out_count);
-                printf("\n--- Detect head %s (float vs int8) ---\n", names[i]);
-                printf("  MSE: %.6e  Correlation: %.6f\n", mse, corr);
-            } else {
-                printf("\n--- Detect head %s: int8 forward OK ---\n", names[i]);
-            }
+            printf("\n--- Detect head %s: int8 forward OK ---\n", names[i]);
         } else {
             printf("\n--- Detect head %s: no int8 weights (q_weight/scale_w missing) ---\n", names[i]);
         }

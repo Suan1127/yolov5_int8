@@ -35,16 +35,15 @@ set(CORE_SOURCES
 )
 
 set(OPS_SOURCES
+    src/ops/conv_backend.c
     src/ops/conv2d.c
+    src/ops/conv2d_int8.c
+    src/ops/quant_util.c
     src/ops/activation.c
     src/ops/batchnorm2d.c
     src/ops/pooling.c
     src/ops/upsample.c
     src/ops/concat.c
-)
-set(VALIDATION_SOURCES_LIB
-    src/validation/quant_util.c
-    src/validation/conv2d_int8.c
 )
 
 set(BLOCKS_SOURCES
@@ -64,14 +63,13 @@ set(POSTPROCESS_SOURCES
     src/postprocess/nms.c
 )
 
-# Main library (quant_util, conv2d_int8 used by conv2d.c quant path)
+# Main library (quant_util, conv2d_int8 in ops; used by conv2d quant path and conv_backend)
 add_library(yolov5_c STATIC
     ${CORE_SOURCES}
     ${OPS_SOURCES}
     ${BLOCKS_SOURCES}
     ${MODELS_SOURCES}
     ${POSTPROCESS_SOURCES}
-    ${VALIDATION_SOURCES_LIB}
 )
 
 # Main executable

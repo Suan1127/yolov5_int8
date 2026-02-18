@@ -102,8 +102,9 @@ models/ (모델 구성 및 추론)
 
 **주요 함수**:
 - `conv2d_init()`: 합성곱 레이어 초기화
-- `conv2d_forward()`: 순전파 수행
-- `conv2d_load_weights()`: 가중치 로드
+- `conv2d_load_weights_int8()`: int8 가중치 로드
+- `conv2d_quant_forward()`: BN 없는 Conv (Detect head 등) int8 순전파
+- `conv2d_quant_bn_silu_forward()`: Conv+BN+SiLU int8 순전파
 
 ### `batchnorm2d.h/c` - 배치 정규화
 

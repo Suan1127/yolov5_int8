@@ -68,7 +68,7 @@
 ---
 ### Detect Head Conv
 
-- `detect.c`의 `detect_convs`는 Conv+Bias만 사용(BN 없음). 현재는 `conv2d_forward`만 사용하며, 융합 op은 BN이 있거나 SiLU만 붙는 경우에 적용됩니다. 구조가 바뀌지 않는 한 그대로 두면 됩니다.
+- `detect.c`의 `detect_convs`는 Conv+Bias만 사용(BN 없음). int8 전용으로 `conv2d_quant_forward` 사용. 융합 op은 BN이 있거나 SiLU만 붙는 경우 `conv2d_quant_bn_silu_forward`로 적용됩니다.
 
 ---
 

@@ -398,18 +398,16 @@ error:
     return -1;
 }
 
-static int sppf_conv_bn_silu_float(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
+/* Int8 path: Conv+BN(fused) + SiLU. Requires conv->q_weight. */
+static int sppf_conv_bn_silu_int8(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
                                   const tensor_t* input, tensor_t* output) {
-    if (conv2d_forward(conv, input, output) != 0) return -1;
-    if (bn && !fused && batchnorm2d_forward(bn, output, output) != 0) return -1;
-    activation_silu(output);
-    return 0;
+    return conv2d_quant_bn_silu_forward(conv, bn, fused, input, output);
 }
 
 int sppf_forward_float(sppf_block_t* block, const tensor_t* input, tensor_t* output,
                       tensor_t* workspace1, tensor_t* workspace2, tensor_t* workspace3) {
     if (!block || !input || !output) return -1;
-    if (!block->cv1.weight) return -1;
+    if (!block->cv1.q_weight || block->cv1.scale_w <= 0.f) return -1;  /* int8 path */
 
     int need_free_ws1 = 0, need_free_ws2 = 0, need_free_ws3 = 0;
     if (!workspace1) {
@@ -435,7 +433,7 @@ int sppf_forward_float(sppf_block_t* block, const tensor_t* input, tensor_t* out
         need_free_ws3 = 1;
     }
 
-    if (sppf_conv_bn_silu_float(&block->cv1, &block->cv1_bn, block->cv1_is_fused, input, workspace1) != 0) {
+    if (sppf_conv_bn_silu_int8(&block->cv1, &block->cv1_bn, block->cv1_is_fused, input, workspace1) != 0) {
         if (need_free_ws1) tensor_free(workspace1);
         if (need_free_ws2) tensor_free(workspace2);
         if (need_free_ws3) tensor_free(workspace3);
@@ -486,7 +484,7 @@ int sppf_forward_float(sppf_block_t* block, const tensor_t* input, tensor_t* out
     tensor_free(y2);
     tensor_free(y4);
 
-    if (sppf_conv_bn_silu_float(&block->cv2, &block->cv2_bn, block->cv2_is_fused, workspace3, output) != 0) {
+    if (sppf_conv_bn_silu_int8(&block->cv2, &block->cv2_bn, block->cv2_is_fused, workspace3, output) != 0) {
         if (need_free_ws1) tensor_free(workspace1);
         if (need_free_ws2) tensor_free(workspace2);
         if (need_free_ws3) tensor_free(workspace3);

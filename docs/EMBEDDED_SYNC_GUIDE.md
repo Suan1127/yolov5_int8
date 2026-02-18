@@ -109,7 +109,7 @@ uint32_t chk = checksum32_bytes(input->data, count * sizeof(float));
   - **C3 블록**: cv1, cv2, cv3 각각 Conv+BN+SiLU → `conv2d_fused_bn_silu_forward` 한 번씩.
   - **SPPF 블록**: cv1, cv2 동일.
   - **Bottleneck 블록**: conv1, conv2 동일.
-- **기존 호출 제거**: `conv2d_forward` → (선택) `batchnorm2d_forward` → `activation_silu` 세 번 호출을, 위 융합 함수 **한 번**으로 교체하면 됩니다.
+- **호출**: Conv+BN+SiLU 구간은 `conv2d_quant_bn_silu_forward` 한 번으로 수행합니다. (int8 전용, float 경로 제거됨)
 
 ### 2.2 연산 단위 메모리 접근 최소화
 

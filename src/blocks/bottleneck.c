@@ -155,18 +155,15 @@ int bottleneck_forward(bottleneck_t* block, const tensor_t* input, tensor_t* out
     return 0;
 }
 
-/* Float path: conv2d_forward + (BN if !fused) + SiLU. Requires layer->weight. */
-static int conv_bn_silu_float(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
-                              const tensor_t* input, tensor_t* output) {
-    if (conv2d_forward(conv, input, output) != 0) return -1;
-    if (bn && !fused && batchnorm2d_forward(bn, output, output) != 0) return -1;
-    activation_silu(output);
-    return 0;
+/* Int8 path: Conv+BN(fused) + SiLU. Requires conv->q_weight. */
+static int conv_bn_silu_int8(conv2d_layer_t* conv, batchnorm2d_layer_t* bn, int fused,
+                             const tensor_t* input, tensor_t* output) {
+    return conv2d_quant_bn_silu_forward(conv, bn, fused, input, output);
 }
 
 int bottleneck_forward_float(bottleneck_t* block, const tensor_t* input, tensor_t* output, tensor_t* workspace) {
     if (!block || !input || !output) return -1;
-    if (!block->conv1.weight) return -1;  /* float path requires float weights */
+    if (!block->conv1.q_weight || block->conv1.scale_w <= 0.f) return -1;  /* int8 path */
 
     int need_free_workspace = 0;
     if (!workspace) {
@@ -179,7 +176,7 @@ int bottleneck_forward_float(bottleneck_t* block, const tensor_t* input, tensor_
         }
     }
 
-    if (conv_bn_silu_float(&block->conv1, &block->bn1, block->conv1_is_fused, input, workspace) != 0) {
+    if (conv_bn_silu_int8(&block->conv1, &block->bn1, block->conv1_is_fused, input, workspace) != 0) {
         if (need_free_workspace && workspace) tensor_free(workspace);
         return -1;
     }
@@ -189,7 +186,7 @@ int bottleneck_forward_float(bottleneck_t* block, const tensor_t* input, tensor_
         if (need_free_workspace && workspace) tensor_free(workspace);
         return -1;
     }
-    if (conv_bn_silu_float(&block->conv2, &block->bn2, block->conv2_is_fused, workspace, temp) != 0) {
+    if (conv_bn_silu_int8(&block->conv2, &block->bn2, block->conv2_is_fused, workspace, temp) != 0) {
         tensor_free(temp);
         if (need_free_workspace && workspace) tensor_free(workspace);
         return -1;
